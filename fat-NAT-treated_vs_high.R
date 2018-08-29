@@ -4,12 +4,22 @@ set.seed(123)
 # Libraries
 library(hgu95av2.db)
 library(tidyverse)
+library(magrittr)
+library(foreach)
 source("~/third_party_sofware/utilities_normalization.R")
 library(sva)
 
 # RUV
 library(ruv)
 source("~/third_party_sofware//RUV4.R")
+
+# Heatmap
+library(ggdendro)
+
+library(RColorBrewer)
+
+# to_matrix function
+source("https://gist.githubusercontent.com/stemangiola/39b08d529157ce59a5ff5dc1653951c5/raw/4538f8f5665810d3625fba8e06cbedce6486e887/to_matrix.R")
 
 #############################################################
 # Build data set ############################################
@@ -50,7 +60,8 @@ annot =
 			)
 		)
 	) %>%
-	mutate_if(is.character, as.factor) 
+	mutate_if(is.character, as.factor) %>%
+	arrange(Sample)
 
 d = d[,annot %>% pull(Sample) %>% as.character()]
 
@@ -81,7 +92,6 @@ tbl_to_MDS_plot = function(my_df_mds, annot, read_count = "Read count", file_nam
 	mutate(Sample = gsub("PP", "", as.character(Sample))) %>%
 	mutate_if(is.character, as.factor) %>%
 		
-
 	gather(Annotation, Value, c("Batch", "Label", "kit", "Recurrence")) %>%
 	{
 		
@@ -139,10 +149,49 @@ d_adj =
 		value_column = "value"
 	) %>%
 	filter(!filt_for_calc) %>%
-	dplyr::select(symbol, Sample, `value normalised`) %>%
+	dplyr::select(symbol, Sample, `value normalised`, value) %>%
 	mutate(`value normalised log` = log(`value normalised` + 1)) %>%
 	
-	# MDS calculation
+	# Plot densities
+	{
+		
+		getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+		
+		(.) %>%
+		gather(is_normalised, value, c("value", "value normalised")) %>%
+		{
+		ggplot((.), aes(value + 1, color=Sample)) +
+			geom_density() +
+			facet_grid(~ is_normalised) +
+			scale_color_manual(values = getPalette( (.) %>% distinct(Sample) %>% nrow )) +
+			#scale_color_brewer(palette = "Set1") +
+			scale_x_log10() +
+			theme_bw() +
+			theme(
+				panel.border = element_blank(), 
+				axis.line = element_line(),
+				panel.grid.major = element_line(size = 0.2),
+				panel.grid.minor = element_line(size = 0.1),
+				text = element_text(size=12),
+				legend.position="bottom",
+				aspect.ratio=1,
+				strip.background = element_blank(),
+				axis.title.x  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+				axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10))
+			)
+		} %>%
+		ggsave(plot = .,
+					 "out_treatment_vs_high/nat_vs_high_density.pdf",
+					 useDingbats=FALSE,
+					 units = c("mm"),
+					 width = 183 ,
+					 height = 183 /2 + 30 
+		)
+		
+		(.)
+	} %>%
+
+	# Adjustment
 	{
 		
 		my_df_mds = (.)
@@ -152,7 +201,7 @@ d_adj =
 		tbl_to_MDS_plot(
 			annot, 
 			read_count = "value normalised log",
-			file_name = "mds_plot_landscape.pdf"
+			file_name = "out_treatment_vs_high/mds_plot_landscape.pdf"
 		)
 
 		# 2. MDS plot after batch correction
@@ -188,38 +237,38 @@ d_adj =
 					hkg = hk_600
 				) %>%
 				{
+					RUVres = (.)
 					
 					# Plot unwanted covariates
-					
+
 					# Recalculated corrected expresison
 					matrix(
 						pmax(
 							Y %>% t() - 
-							(.)$W %*% (.)$alpha_all,
+								RUVres$W %*% RUVres$alpha_all,
 							0
 						),
 						nr=nrow(Y %>% t()),
 						ncol=ncol(Y %>% t())
-					)
-				} %>%
-				t() %>%
-				magrittr::set_rownames(Y %>% rownames()) %>%
-				magrittr::set_colnames(Y %>% colnames())
-			} %>%
-		
-			# Annotate
-			as_tibble(rownames="symbol") %>%
-			gather(Sample,`value RUV log`, -symbol ) 
-			#left_join(my_df_mds) %>%
+					) %>% 
+
+					magrittr::set_colnames(Y %>% rownames()) %>%
+					magrittr::set_rownames(Y %>% colnames()) %>%
+					as_tibble(rownames="Sample") %>%
+					bind_cols(W = RUVres$W) %>%
+					gather(symbol,`value RUV log`, -Sample, -W ) 
+				} 
+			} 
 			
 			# Produce MDS
 		my_df_mds.RUV %>%
+			dplyr::select(Sample, symbol, `value RUV log`) %>%
 			tbl_to_MDS_plot(
 				annot, 
 				read_count = "value RUV log",
 				file_name = "mds_plot_landscape_RUV.pdf"
 			)
-		
+
 		# 3. Combat correction of KIT
 		my_df_mds.Combat = 
 			my_df_mds %>%
@@ -243,18 +292,276 @@ d_adj =
 			tbl_to_MDS_plot(
 				annot, 
 				read_count = "value Combat log",
-				file_name = "mds_plot_landscape_Combat.pdf"
+				file_name = "out_treatment_vs_high/mds_plot_landscape_Combat.pdf"
 			)
 		
 			# Return the normalisation data sets
 			my_df_mds %>%
 				left_join(my_df_mds.RUV) %>%
 				left_join(my_df_mds.Combat)
-	}
+	} %>%
+	
+	# Attach annotation
+	left_join(annot) %>%
+	mutate_if(is.character, as.factor)
 	
 # Plot and save
 
+design = 
+	model.matrix(
+		~ 
+			d_adj %>% distinct(Sample, Label, W) %>% arrange(Sample) %>% pull(Label) +
+			d_adj %>% distinct(Sample, Label, W) %>% arrange(Sample) %>% pull(W)
+	) %>%
+	magrittr::set_colnames(c("(Intercept)", "is_Neoadjuvant", "W"))
 
 
+contrasts = 
+	makeContrasts(
+		MUvsWT=CAPRA_groupshigh-CAPRA_groupslow,
+		levels=
+			model.matrix(
+				~ 
+					d_adj %>% distinct(Sample, Label, W) %>% arrange(Sample) %>% pull(Label) +
+					d_adj %>% distinct(Sample, Label, W) %>% arrange(Sample) %>% pull(W)
+			) %>%
+			magrittr::set_colnames(c("(Intercept)", "is_Neoadjuvant", "W"))
+	)
 
 
+top <-
+	d %>%
+	
+	# Filter f
+	{
+		(.)[
+			(.)$genes$symbol %in% 
+			(
+				d_adj %>% 
+				distinct(symbol) %>% 
+				pull(symbol) %>% 
+				as.character
+			),
+		]
+	} %>%
+	
+	# Add group info to d
+	{
+		d_with_group = (.)
+		d_with_group$samples$group = as.factor(design[,2])
+		d_with_group
+	} %>%
+	
+	# Calculate statistics
+	calcNormFactors(method="TMM") %>%
+	estimateGLMCommonDisp(design) %>%
+	estimateGLMTagwiseDisp(design) %>%
+	
+	# DE analysis
+	{
+		y = (.)
+		# EdgeR
+
+		y %>%
+		glmFit(design) %>%
+		glmLRT(coef=2) %>%
+		topTags(n=999999) %$%
+		table %>%
+		as_tibble() %>%
+			
+		# Write 
+		{
+			(.) %>% write_csv("out_treatment_vs_high/DE_table_RUV.csv")
+			(.)
+		} %>%
+			
+		# Plot smear
+		{
+			top = (.)
+
+			plotSmear(
+				y, 
+				de.tags=
+					top %>% 
+					filter(FDR < 0.05) %>% 
+					pull(GeneID)
+			) %>%
+			do.call(bind_cols, .)	%>%
+			mutate(symbol = y$genes$symbol) %>%
+			left_join(top) %>%
+			mutate(symbol = ifelse(FDR<0.05, symbol, "")) %>%
+			{
+				ggplot((.), aes(x = A, y = M,  label=symbol)) +
+				geom_point(aes(color = FDR<0.05, alpha = FDR<0.05, size = FDR<0.05)) +
+				ggrepel::geom_text_repel(
+					size = 1.6, 
+					point.padding = 0.3, 
+					segment.size = 0.2,
+					seed = 123
+				) +
+				scale_color_manual(values = c("FALSE" = "grey20", "TRUE" = "#db2523")) +
+				scale_alpha_manual(values = c("FALSE" = 0.3, "TRUE" = 1)) +
+				scale_size_manual(values = c("FALSE" = 0.3, "TRUE" = 1)) +
+				theme_bw() +
+				theme(
+					panel.border = element_blank(), 
+					axis.line = element_line(),
+					panel.grid.major = element_line(size = 0.2),
+					panel.grid.minor = element_line(size = 0.1),
+					text = element_text(size=12),
+					legend.position="bottom",
+					aspect.ratio=1,
+					strip.background = element_blank(),
+					axis.title.x  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+					axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10))
+				) +
+				xlab("Average log count per million") + ylab("Log fold change") 
+			}	 %>%
+			ggsave(plot = .,
+						 "out_treatment_vs_high/plot_smear_RUV.pdf",
+						 useDingbats=FALSE,
+						 units = c("mm"),
+						 width = 183 ,
+						 height = 183 
+			)
+			
+			(.)
+		} %>%
+		
+		# Heat map
+		{
+			top = (.)
+			
+			# # Top genes from MDS - NOT USED ANYMORE BUT HELPFUL
+			# source("~/third_party_sofware/myMDS.R")
+			# top_genes = my_df_mds %>%
+			# 	dplyr::select(symbol, Sample, !!read_count) %>%
+			# 	spread( Sample, !!read_count) %>%
+			# 	to_matrix(rownames = "symbol") %>%
+			# 	my.mds(gene.selection = "common") %$% 
+			# 	top_genes 
+			
+			library(superheat)
+			
+ 			pdf("out_treatment_vs_high/heatmap_RUV.pdf", width = 183 * 0.0393701, height = 183*0.0393701, useDingbats=F)
+			d_adj %>%
+				left_join(annot) %>%
+				unite(Sample_label, c("Sample", "Label"), remove = F) %>%
+				dplyr::select(symbol, Sample_label, `value RUV log`) %>%
+				filter(
+					symbol %in% 
+					(
+						top %>% 
+						filter(FDR < 0.05) %>% 
+						pull(symbol)
+					)
+				) %>%
+				spread( Sample_label, `value RUV log`) %>%
+				to_matrix(rownames = "symbol") %>%
+				t() %>%
+				scale() %>%
+				t() %>%
+			
+			superheat(
+				row.dendrogram = T,
+				col.dendrogram = T,
+				bottom.label.text.angle = 90,
+				left.label.text.size = 1,
+				bottom.label.text.size = 3,
+				left.label.size = 0.1,
+				grid.hline.size	= 0.1,
+				grid.vline.size = 0.1
+			) 
+			dev.off()
+			
+			detach("package:superheat", unload=TRUE, force = T)
+		
+		(.)
+		} %>%
+		
+		{
+		browser()
+		# Overall gene enrichment analysis
+		library(EGSEA)
+		library(EGSEAdata)
+		voom(y, design, plot=FALSE) %>%
+			
+		# Format
+		{
+			v = (.)
+			colnames(v$genes) = c("ENTREZID", "length", "SYMBOL")
+			v$genes = v$genes[,c(1,3,2)]
+			v
+		} %>%
+			
+		# Run gene enrichment
+		{
+			v = (.)
+			browser()
+			
+			egsea(
+				voom.results=v, 
+				contrasts= 
+					makeContrasts(
+						MUvsWT=CAPRA_groupshigh-CAPRA_groupslow,
+						levels=
+							model.matrix(
+								~ 
+									d_adj %>% distinct(Sample, Label, W) %>% arrange(Sample) %>% pull(Label) +
+									d_adj %>% distinct(Sample, Label, W) %>% arrange(Sample) %>% pull(W)
+							) %>%
+							magrittr::set_colnames(c("(Intercept)", "is_Neoadjuvant", "W"))
+					), 
+				gs.annots=buildIdx(entrezIDs=rownames(v), species="human"), 
+				symbolsMap=
+					v %$% 
+					genes %>% 
+					dplyr::select(1:2) %>%
+					setNames(c("FeatureID", "Symbols")),
+				baseGSEAs=egsea.base()[-2], 
+				sort.by="med.rank",
+				num.threads = 16
+			)
+				
+		}
+		
+		
+		}
+		
+	}
+
+# Overall gene enrichment analysis
+run_egsea = function(y, model_matrix, contrast_matrix){
+	# Gene enrichment analyses
+	# source("https://bioconductor.org/biocLite.R")
+	# biocLite("EGSEA")
+	library(EGSEA)
+	library(EGSEAdata)
+	v = voom(y, model_matrix, plot=FALSE)
+	colnames(v$genes) = c("ENTREZID", "length", "SYMBOL")
+	v$genes = v$genes[,c(1,3,2)]
+	
+	symbolsMap = v$genes[, c(1, 2)]
+	colnames(symbolsMap) = c("FeatureID", "Symbols")
+	symbolsMap[, "Symbols"] = as.character(symbolsMap[, "Symbols"])
+	baseMethods = egsea.base()[-2]
+	info = egsea.data("human", returnInfo = TRUE)
+	gs.annots = buildIdx(entrezIDs=rownames(v), species="human")
+	egsea(
+		voom.results=v, 
+		contrasts=contrast_matrix, 
+		gs.annots=gs.annots, 
+		symbolsMap=symbolsMap,
+		baseGSEAs=baseMethods, 
+		sort.by="med.rank",
+		num.threads = 16
+	)
+	
+	
+}
+gsa = run_egsea(obj.e$de_res$df, design, cont.matrix)
+save(gsa, file="EGSEA_e.RData")
+summary(gsa)
+		
+		
+	
