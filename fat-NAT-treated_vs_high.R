@@ -528,4 +528,88 @@ DE.obj <-
 
 # top %>% filter(FDR<0.05) %>% mutate(`Fold change` = exp(abs(logFC))) %>%  summarise(median(`Fold change`), max(`Fold change`))
 		
+
+# Manual annotation
+top %>%
+	# Annotate
+	filter(FDR<0.05) %>%
+	left_join(
+		biomaRt::getBM(
+			filters=c("hgnc_symbol"),
+			values = (.)$symbol , 
+			attributes = c(
+				'ensembl_gene_id', 
+				'entrezgene','hgnc_symbol',
+				'description',
+				'name_1006',    'namespace_1003', 'definition_1006'
+			),
+			mart = biomaRt::useMart("ensembl",dataset="hsapiens_gene_ensembl")
+		) %>%
+			as_tibble() %>%
+			dplyr::rename(symbol=hgnc_symbol),
+		by = "symbol"
+	) %>%
+	mutate(`Recurrent patterns` = NA) %>%
+	mutate(
+		`Recurrent patterns` = 
+			ifelse(
+				grepl("lipid|steroid|hormone|fat|fatty|adipose|sperm|estradiol|insulin|sex|corticoid|cortisol|spermatogenesis|thyroid", name_1006),
+				"Hormone/fat homeostasis",
+				`Recurrent patterns`
+			)
+	) %>%
+	mutate(
+		`Recurrent patterns` = 
+			ifelse(
+				grepl("immune|complement|leukocyte|inflammation|infection|neutrophil|myeloid", name_1006),
+				"Inflammation",
+				`Recurrent patterns`
+			)
+	) %>%
+	filter(!is.na(`Recurrent patterns`)) %>%
+	distinct(symbol, logFC, `Recurrent patterns`) %>%
+	group_by(symbol) %>%
+	mutate(`Recurrent patterns` = ifelse(n() > 1, "Both", `Recurrent patterns`)) %>%
+	distinct() %>%
+	mutate_if(is.character, as.factor) %>%
+	{
+		df = (.)
+
+		df %>% 
+		filter(`Recurrent patterns` == "Hormone/fat homeostasis") %>%
+		mutate(x = runif(n(), -1, 1), y=runif(n(), -1, 1)) %>%
+		bind_rows(
+			df %>% 
+				filter(`Recurrent patterns` == "Both") %>%
+				mutate(x = 1.2, y=runif(n(), -1, 1)) 
+		) %>%
+		bind_rows(
+			df %>% 
+				filter(`Recurrent patterns` == "Inflammation") %>%
+				mutate(x = runif(n(), 1.5, 3.5), y=runif(n(), -1, 1)) 
+		)
+	} %>%
+	ggplot(aes(x = x, y = y, label = symbol)) + 
+	geom_point(aes(fill=`Recurrent patterns`), shape=21, size = 3) +
+	ggrepel::geom_text_repel(
+		size = 3, 
+		point.padding = 0.3, 
+		segment.size = 0.2,
+		seed = 123
+	) +
+	scale_fill_brewer(palette = "Set1") +
+	theme_bw() +
+	theme(
+		panel.border = element_blank(), 
+		axis.line = element_line(),
+		panel.grid.major = element_line(size = 0.2),
+		panel.grid.minor = element_line(size = 0.1),
+		text = element_text(size=12),
+		legend.position="bottom",
+		aspect.ratio=2/4.5,
+		strip.background = element_blank(),
+		axis.title.x  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+		axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10))
+	)
+
 	
