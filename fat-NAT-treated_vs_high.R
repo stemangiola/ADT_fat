@@ -82,7 +82,7 @@ annot =
 d = d[,annot %>% pull(Sample) %>% as.character()]
 
 #############################################################
-# MDS plots #################################################
+# Normalise #################################################
 
 # Function that takes annotated tibble and save MDS plot for the first 8 PC
 tbl_to_MDS_plot = function(my_df_mds, annot, read_count = "Read count", file_name, limits = c(-1.5, 1.5)){
@@ -323,7 +323,8 @@ d_adj =
 	left_join(annot) %>%
 	mutate_if(is.character, as.factor)
 
-# Plot and save
+#############################################################
+# DE ########################################################
 
 design = 
 	model.matrix(
@@ -332,12 +333,6 @@ design =
 			d_adj %>% distinct(Sample, Label, W) %>% arrange(Sample) %>% pull(W)
 	) %>%
 	magrittr::set_colnames(c("(Intercept)", "neoadjuvant", "W"))
-
-# contrasts = 
-# 	makeContrasts(
-# 		MUvsWT=neoadjuvant-high,
-# 		levels=design
-# 	)
 
 DE.obj <-
 	d %>%
@@ -553,7 +548,9 @@ DE.obj <-
 		
 	}
 
-# Plot DE genes
+#############################################################
+# Plot DE ###################################################
+
 d_adj %>% 
 	
 {
@@ -609,8 +606,9 @@ d_adj %>%
 
 # top %>% filter(FDR<0.05) %>% mutate(`Fold change` = exp(abs(logFC))) %>%  summarise(median(`Fold change`), max(`Fold change`))
 
+#############################################################
+# Manual annotation #########################################
 
-# Manual annotation
 DE.obj %$%
 	top %>%
 	filter(FDR<0.05) %>%
@@ -709,9 +707,8 @@ DE.obj %$%
 		axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10))
 	)
 
-# Tissue composition analyses
-source("~/PhD/deconvolution/ARMET_BK_Apr2017/comparison_methods/cibersort/CIBERSORT_annotated.R")
-
+#############################################################
+# Tissue composition analyses ###############################
 
 getPalette = colorRampPalette(brewer.pal(9, "Set1"))
 
