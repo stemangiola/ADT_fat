@@ -29,8 +29,8 @@ library(EGSEA)
 library(EGSEAdata)
 
 # Safe detach
-detach("package:AnnotationDbi", unload=TRUE, force = T)
-detach("package:hgu95av2.db", unload=TRUE, force = T)
+# detach("package:AnnotationDbi", unload=TRUE, force = T)
+# detach("package:hgu95av2.db", unload=TRUE, force = T)
 
 # Deconvolution
 library(ARMET)
@@ -497,46 +497,68 @@ DE.obj <-
 			egsea.res = {
 				library(AnnotationDbi)
 				
-				y %>%
-					voom(design, plot=FALSE) %>%
+				file_name = "out_treatment_vs_high/EGSEA_high_vs_treated.RData"
+
+				er = switch(
 					
-					# Run gene enrichment
+					# Condition
+					(!file.exists(file_name)) + 1,
+					
+					# If file exist
 					{
-						v = (.)
-						colnames(v$genes) = c("ENTREZID", "length", "SYMBOL")
-						v$genes = v$genes[,c(1,3,2)]
-						browser()
-						idx = buildIdx(entrezIDs=rownames(v), species="human")
-						v %>%
-							egsea(
-								contrasts=2, 
-								gs.annots=idx, 
-								symbolsMap=
-									v %$% 
-									genes %>% 
-									dplyr::select(1:2) %>%
-									setNames(c("FeatureID", "Symbols")),
-								baseGSEAs = egsea.base()[-c(4)],
-								sort.by="med.rank",
-								num.threads = 4
-							)
-					} %>%
-					{
-						save((.), file="out_treatment_vs_high/EGSEA_high_vs_treated.RData")
-						(.)
-					}
+						load(file_name)
+						egsea.results
+					},
+					
+					# If file does NOT exist
+					y %>%
+						voom(design, plot=FALSE) %>%
+						
+						# Run gene enrichment
+						{
+							v = (.)
+							colnames(v$genes) = c("ENTREZID", "length", "SYMBOL")
+							v$genes = v$genes[,c(1,3,2)]
+							
+							idx = buildIdx(entrezIDs=rownames(v), species="human")
+
+							v %>%
+								egsea(
+									contrasts=2, 
+									gs.annots=idx, 
+									symbolsMap=
+										v %$% 
+										genes %>% 
+										dplyr::select(1:2) %>%
+										setNames(c("FeatureID", "Symbols")),
+									baseGSEAs = egsea.base()[-c(6, 7, 8, 9)],
+									sort.by="med.rank",
+									num.threads = 1
+								)
+						} %>%
+						{
+							egsea.results = (.)
+							save(egsea.results, file=file_name)
+							(.)
+						}
+				) 
 				
 				detach("package:AnnotationDbi", unload=TRUE, force = T)
 				
+				# return after detach trick 
+				er
 			}
 		)
+		
+		
 	}
 
 # Plot DE genes
 d_adj %>% 
 	
 {
-	top_de = top %>% 
+	top_de = DE.obj %$%
+		top %>% 
 		filter(FDR<0.05) %>%
 		mutate(`Fold change` = exp(abs(logFC))) %>%
 		filter(`Fold change` > 2)
@@ -546,8 +568,8 @@ d_adj %>%
 		inner_join(top_de) %>%
 		
 		# Shape raw and RUV counts
-		mutate(`value RUV` = exp(`value RUV log`)) %>%
-		rename(`Counts raw` = value, `Counts RUV` = `value RUV`) %>%
+		mutate(`Counts RUV` = exp(`value RUV log`)) %>%
+		dplyr::rename(`Counts raw` = value) %>%
 		gather(is_normalised, `Read count`, c("Counts raw", "Counts RUV")) %>%
 		
 		# Set order factors
@@ -589,7 +611,8 @@ d_adj %>%
 
 
 # Manual annotation
-top %>%
+DE.obj %$%
+	top %>%
 	filter(FDR<0.05) %>%
 	mutate(`Fold change` = exp(abs(logFC))) %>%
 	filter(`Fold change` > 2) %>%
@@ -639,8 +662,7 @@ top %>%
 	filter(!is.na(`Recurrent patterns`)) %>%
 	distinct(symbol, logFC, `Recurrent patterns`) %>%
 	group_by(symbol) %>%
-	mutate(`Recurrent patterns` = ifelse(n() > 1, "Both", `Recurrent patterns`)) %>%
-	distinct() %>%
+	summarise(`Recurrent patterns` = paste(`Recurrent patterns`, collapse=" | "), logFC = unique(logFC)) %>%
 	mutate_if(is.character, as.factor) %>%
 	{
 		df = (.)
@@ -650,13 +672,18 @@ top %>%
 			mutate(x = runif(n(), -1, 1), y=runif(n(), -1, 1)) %>%
 			bind_rows(
 				df %>% 
-					filter(`Recurrent patterns` == "Both") %>%
+					filter(`Recurrent patterns` == "Hormone/fat homeostasis | Inflammation") %>%
 					mutate(x = 1.2, y=runif(n(), -1, 1)) 
 			) %>%
 			bind_rows(
 				df %>% 
 					filter(`Recurrent patterns` == "Inflammation") %>%
 					mutate(x = runif(n(), 1.5, 3.5), y=runif(n(), -1, 1)) 
+			) %>%
+			bind_rows(
+				df %>% 
+					filter(grepl("Neural", `Recurrent patterns`)) %>%
+					mutate(x = runif(n(), 0.2, 2.2), y=runif(n(), -3, -1)) 
 			)
 	} %>%
 	ggplot(aes(x = x, y = y, label = symbol)) + 
@@ -685,7 +712,10 @@ top %>%
 # Tissue composition analyses
 source("~/PhD/deconvolution/ARMET_BK_Apr2017/comparison_methods/cibersort/CIBERSORT_annotated.R")
 
-tissue_composition.cs = 
+
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+
+tissue_composition = 
 	d_adj %>%
 	mutate( `Count RUV` = exp(`value RUV log`)) %>%
 	dplyr::select(symbol, Sample, `Count RUV`) %>%
@@ -695,7 +725,7 @@ tissue_composition.cs =
 	ungroup() %>%
 	{
 		df = (.)
-		browser()
+
 		list(
 			
 			# Cibersort
@@ -709,38 +739,188 @@ tissue_composition.cs =
 				# Inference
 			{
 				CIBERSORT("~/PhD/deconvolution/ARMET_BK_Apr2017/comparison_methods/cibersort/LM22.txt",	(.))$proportions %>%
-					as_tibble(rownames = "sample") %>% 
-					dplyr::select(-`P-value`, -Correlation, -RMSE) %>% 
-					gather(`Cell type`, value, -sample)
+					as_tibble(rownames = "Sample") %>% 
+					dplyr::select(-`P-value`, -Correlation, -RMSE)
 			} %>%
-				
+			
 				# test
 			{
-				temp = 	summary(simplexreg(formula = X ~ cov, data.frame(X = Y_hat_prop[,i], my_design)))$coefficients
-				res_dr = as_tibble(temp$mean)
-				res_dr = res_dr %>% add_column("name" = rownames(as.data.frame(temp)),.before = 1)
-				res_dr = res_dr %>% add_column("sig. annotation" = "")
-				res_dr$variable = c(i,i)
-				res_dr$algorithm = "simr"
-				res_dr
-			},
+				proportions = (.)
+				dd = (.) %>% left_join(d_adj %>% distinct(Sample, Label, W)) %>% dplyr::select(-Sample) 
+				AL = (.) %>% dplyr::select(-Sample) %>% DR_data
+				DirichReg(AL ~ Label + W, dd) %>%
+					summary %>%
+					{
+						
+						res = (.)
+						res %$% 
+							coef.mat %>% 
+							as_tibble(rownames="cov") %>% 
+							mutate(
+								`Cell type` = 
+									res %$%	
+									residuals %>% 
+									colnames() %>% 
+									sapply(., rep, 3) %>% 
+									c
+							) %>%
+							filter(cov == "LabelNeoadjuvant") %>%
+							mutate(FDR = p.adjust(`Pr(>|z|)`, "BH")) %>%
+							mutate(sig = ifelse(FDR < 0.05, "*", "")) 
+					} %>%
+					
+					# Unite proportions with test
+					left_join(
+						proportions %>%
+							gather(`Cell type`, Proportion, -Sample) %>%
+							left_join(d_adj %>% distinct(Sample, Label))
+					) %>%
+					unite(`Cell type`, c("Cell type", "sig"), sep = " ")
+			}  %>%
+			
+			# plot
+			{
+				res = (.)
+				
+				res %>%
+					mutate(`Cell type` = gsub("_", " ", `Cell type`)) %>%
+					mutate(`Cell type` = Hmisc::capitalize(`Cell type`)) %>%
+						{
+						ggplot((.), aes(x=Label, y = Proportion, fill = `Cell type`)) +
+							geom_boxplot(outlier.size = 0) +
+							geom_jitter(size = 0.2, height = 0) +
+							facet_wrap(~ `Cell type`, scales = "free") +
+							#scale_fill_manual(values = c("Neoadjuvant" = "#e31e1e", "High" = "#999999")) +
+							scale_fill_manual(values = getPalette( res %>% distinct(`Cell type`) %>% nrow )) +
+							theme_bw() +
+							theme(
+								panel.border = element_blank(), 
+								axis.line = element_line(),
+								panel.grid.major = element_line(size = 0.2),
+								panel.grid.minor = element_line(size = 0.1),
+								text = element_text(size=12),
+								aspect.ratio =1,
+								legend.position="bottom",
+								strip.background = element_blank(),
+								axis.title.x  = element_text(margin = margin(t = 30, r = 10, b = 10, l = 10)),
+								axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+								axis.text.x = element_text(angle = 30, vjust = 0.5)
+							)
+					} %>%
+					ggsave(plot = .,
+								 "out_treatment_vs_high/boxplot_tissue_composition_cibersort.pdf",
+								 useDingbats=FALSE,
+								 units = c("mm"),
+								 width = 183 ,
+								 height = 183/2*3 
+					)
+				
+				# Return data set
+				(.)
+				
+			} ,
 			
 			# ARMET-tc
 			armet = 
-				df %>%
-				rename(gene=symbol) %>%
-				ARMET_tc(
-					my_design = 
-						design %>% 
-						as_tibble() %>% 
-						dplyr::mutate(
-							sample = 
-								df %>%
-								dplyr::select(-symbol) %>% 
-								colnames()
-						),
-					cov_to_test = "neoadjuvant"
-				)
+			{
+				file_name = "out_treatment_vs_high/armet_high_vs_treated.RData"
+				
+				switch(
+					
+					# Condition
+					(!file.exists(file_name)) + 1,
+					
+					# If file exist
+					{
+						load(file_name)
+						armet.res
+					},
+					
+					# If file does NOT exist
+					{
+						df %>%
+							rename(gene=symbol) %>%
+							ARMET_tc(
+								my_design = 
+									design %>% 
+									as_tibble() %>% 
+									dplyr::mutate(
+										sample = 
+											df %>%
+											dplyr::select(-symbol) %>% 
+											colnames()
+									),
+								cov_to_test = "neoadjuvant"
+							) %>%
+							{
+								armet.res = (.)
+								save(armet.res, file=file_name)
+								armet.res
+							}
+					}
+				) %>%
+					
+					# Plot
+				{
+					res = (.)
+					
+					res %$% 
+						proportions %>% 
+						gather(`Cell type`, Proportion, 10:35) %>%
+						rename(Label = neoadjuvant) %>%
+						mutate(Label = as.factor(Label)) %>%
+						left_join(
+							res %$% 
+							stats %>% 
+							data.tree::ToDataFrameTable("name", "Direction", "Sig",   "Driver") %>% 
+							as_tibble() %>%
+							rename(`Cell type` = name)
+						) %>%
+						rowwise() %>%
+						mutate(Driver = paste(rep(Driver, 2), collapse="")) %>%
+						ungroup() %>%
+						unite(Sig, c("Sig", "Driver"), sep = " ") %>%
+						unite(`Cell type`, c("Cell type", "Sig"), sep = " ") %>%
+						drop_na() %>%
+						
+						# Beautify labels
+						mutate(`Cell type` = gsub("_", " ", `Cell type`)) %>%
+						mutate(`Cell type` = Hmisc::capitalize(`Cell type`)) %>%
+						{
+							res = (.)
+							ggplot(res, aes(x=Label, y = Proportion, fill = `Cell type`)) +
+								geom_boxplot(outlier.size = 0) +
+								geom_jitter(size = 0.2, height = 0) +
+								facet_wrap(~ `Cell type`, scales = "free", labeller = label_wrap_gen(width=10)) +
+								#scale_fill_manual(values = c("Neoadjuvant" = "#e31e1e", "High" = "#999999")) +
+								scale_fill_manual(values = getPalette( res %>% distinct(`Cell type`) %>% nrow )) +
+								theme_bw() +
+								theme(
+									panel.border = element_blank(), 
+									axis.line = element_line(),
+									panel.grid.major = element_line(size = 0.2),
+									panel.grid.minor = element_line(size = 0.1),
+									text = element_text(size=12),
+									aspect.ratio =1,
+									legend.position="bottom",
+									strip.background = element_blank(),
+									axis.title.x  = element_text(margin = margin(t = 30, r = 10, b = 10, l = 10)),
+									axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+									axis.text.x = element_text(angle = 30, vjust = 0.5)
+								)
+						} %>%
+						ggsave(plot = .,
+									 "out_treatment_vs_high/boxplot_tissue_composition_armet.pdf",
+									 useDingbats=FALSE,
+									 units = c("mm"),
+									 width = 183 ,
+									 height = 183/2*3 
+						)
+					
+					# Return whole result
+					(.)
+				}
+			}
 		)
 	}
 
