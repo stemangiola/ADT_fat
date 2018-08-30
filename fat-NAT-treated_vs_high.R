@@ -334,6 +334,12 @@ design =
 	) %>%
 	magrittr::set_colnames(c("(Intercept)", "neoadjuvant", "W"))
 
+# contrasts = 
+# 	makeContrasts(
+# 		MUvsWT=neoadjuvant-high,
+# 		levels=design
+# 	)
+
 DE.obj <-
 	d %>%
 	
@@ -710,7 +716,6 @@ DE.obj %$%
 #############################################################
 # Tissue composition analyses ###############################
 
-getPalette = colorRampPalette(brewer.pal(9, "Set1"))
 
 tissue_composition = 
 	d_adj %>%
@@ -763,7 +768,7 @@ tissue_composition =
 							) %>%
 							filter(cov == "LabelNeoadjuvant") %>%
 							mutate(FDR = p.adjust(`Pr(>|z|)`, "BH")) %>%
-							mutate(sig = ifelse(FDR < 0.05, "*", "")) 
+							mutate(Sig = ifelse(FDR < 0.05, "*", "")) 
 					} %>%
 					
 					# Unite proportions with test
@@ -771,51 +776,8 @@ tissue_composition =
 						proportions %>%
 							gather(`Cell type`, Proportion, -Sample) %>%
 							left_join(d_adj %>% distinct(Sample, Label))
-					) %>%
-					unite(`Cell type`, c("Cell type", "sig"), sep = " ")
-			}  %>%
-			
-			# plot
-			{
-				res = (.)
-				
-				res %>%
-					mutate(`Cell type` = gsub("_", " ", `Cell type`)) %>%
-					mutate(`Cell type` = Hmisc::capitalize(`Cell type`)) %>%
-						{
-						ggplot((.), aes(x=Label, y = Proportion, fill = `Cell type`)) +
-							geom_boxplot(outlier.size = 0) +
-							geom_jitter(size = 0.2, height = 0) +
-							facet_wrap(~ `Cell type`, scales = "free") +
-							#scale_fill_manual(values = c("Neoadjuvant" = "#e31e1e", "High" = "#999999")) +
-							scale_fill_manual(values = getPalette( res %>% distinct(`Cell type`) %>% nrow )) +
-							theme_bw() +
-							theme(
-								panel.border = element_blank(), 
-								axis.line = element_line(),
-								panel.grid.major = element_line(size = 0.2),
-								panel.grid.minor = element_line(size = 0.1),
-								text = element_text(size=12),
-								aspect.ratio =1,
-								legend.position="bottom",
-								strip.background = element_blank(),
-								axis.title.x  = element_text(margin = margin(t = 30, r = 10, b = 10, l = 10)),
-								axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-								axis.text.x = element_text(angle = 30, vjust = 0.5)
-							)
-					} %>%
-					ggsave(plot = .,
-								 "out_treatment_vs_high/boxplot_tissue_composition_cibersort.pdf",
-								 useDingbats=FALSE,
-								 units = c("mm"),
-								 width = 183 ,
-								 height = 183/2*3 
-					)
-				
-				# Return data set
-				(.)
-				
-			} ,
+					) 
+			},
 			
 			# ARMET-tc
 			armet = 
@@ -855,71 +817,142 @@ tissue_composition =
 								armet.res
 							}
 					}
+				)
+			}
+		)
+	} %>%
+	
+	# plot Comparison
+	{
+		getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+	
+		bind_rows(
+			
+			# Cibersort
+			(.) %$% cibersort %>%
+				
+				# Convert cell types to match
+				left_join(
+					read_csv("cell_type_conversion.csv") %>% dplyr::select(1,2) %>% rename(`Cell type` = Cibersort)
 				) %>%
-					
-					# Plot
-				{
-					res = (.)
-					
-					res %$% 
-						proportions %>% 
-						gather(`Cell type`, Proportion, 10:35) %>%
-						rename(Label = neoadjuvant) %>%
-						mutate(Label = as.factor(Label)) %>%
-						left_join(
-							res %$% 
+				rowwise() %>%
+				mutate(`Cell type` = ifelse(!is.na(ARMET), ARMET, `Cell type`)) %>%
+				ungroup() %>%
+				dplyr::select(-ARMET) %>%
+				mutate(`Cell type` = gsub("_", " ", `Cell type`)) %>%
+				mutate(`Cell type` = Hmisc::capitalize(`Cell type`)) %>%
+				
+				# Add significance to cell name
+				unite(`Cell type sig`, c("Cell type", "Sig"), sep = " ", remove = F) %>%
+				mutate(`Cell type sig` = str_trim(`Cell type sig`)) %>%
+				
+				mutate(Algorithm = "Cibersort") ,
+			
+			# ARMET
+			(.) %$% armet %>%
+			{
+				res = (.)
+				
+				res %$% 
+					proportions %>% 
+					gather(`Cell type`, Proportion, 10:35) %>%
+					rename(Label = neoadjuvant) %>%
+					mutate(Label = as.factor(Label)) %>%
+					left_join(
+						res %$% 
 							stats %>% 
 							data.tree::ToDataFrameTable("name", "Direction", "Sig",   "Driver") %>% 
 							as_tibble() %>%
 							rename(`Cell type` = name)
-						) %>%
-						rowwise() %>%
-						mutate(Driver = paste(rep(Driver, 2), collapse="")) %>%
-						ungroup() %>%
-						unite(Sig, c("Sig", "Driver"), sep = " ") %>%
-						unite(`Cell type`, c("Cell type", "Sig"), sep = " ") %>%
-						drop_na() %>%
-						
-						# Beautify labels
-						mutate(`Cell type` = gsub("_", " ", `Cell type`)) %>%
-						mutate(`Cell type` = Hmisc::capitalize(`Cell type`)) %>%
-						{
-							res = (.)
-							ggplot(res, aes(x=Label, y = Proportion, fill = `Cell type`)) +
-								geom_boxplot(outlier.size = 0) +
-								geom_jitter(size = 0.2, height = 0) +
-								facet_wrap(~ `Cell type`, scales = "free", labeller = label_wrap_gen(width=10)) +
-								#scale_fill_manual(values = c("Neoadjuvant" = "#e31e1e", "High" = "#999999")) +
-								scale_fill_manual(values = getPalette( res %>% distinct(`Cell type`) %>% nrow )) +
-								theme_bw() +
-								theme(
-									panel.border = element_blank(), 
-									axis.line = element_line(),
-									panel.grid.major = element_line(size = 0.2),
-									panel.grid.minor = element_line(size = 0.1),
-									text = element_text(size=12),
-									aspect.ratio =1,
-									legend.position="bottom",
-									strip.background = element_blank(),
-									axis.title.x  = element_text(margin = margin(t = 30, r = 10, b = 10, l = 10)),
-									axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-									axis.text.x = element_text(angle = 30, vjust = 0.5)
-								)
-						} %>%
-						ggsave(plot = .,
-									 "out_treatment_vs_high/boxplot_tissue_composition_armet.pdf",
-									 useDingbats=FALSE,
-									 units = c("mm"),
-									 width = 183 ,
-									 height = 183/2*3 
-						)
+					) %>%
+					rowwise() %>%
+					mutate(Driver = paste(rep(Driver, 2), collapse="")) %>%
+					ungroup() %>%
+					unite(Sig, c("Sig", "Driver"), sep = " ") %>%
+					mutate(Sig = str_trim(Sig)) %>%
+					drop_na() %>%
 					
-					# Return whole result
-					(.)
-				}
-			}
+					# Beautify labels
+					mutate(`Cell type` = gsub("_", " ", `Cell type`)) %>%
+					mutate(`Cell type` = Hmisc::capitalize(`Cell type`)) %>%
+					
+					# Add significance to cell name
+					unite(`Cell type sig`, c("Cell type", "Sig"), sep = " ", remove = F) %>%
+					mutate(`Cell type` = str_trim(`Cell type`)) %>%
+					
+					# Mutate Label to match Cibersort
+					rowwise() %>%
+					mutate(Label = ifelse(Label == 0, "High", "Neoadjuvant")) %>%
+					ungroup()
+			} %>%
+				mutate(Algorithm = "ARMET") 
+		) %>%
+				
+		# plot
+		{
+			res = (.)
+			
+			res %>%
+				{
+					ggplot((.), aes(x=Label, y = Proportion, fill = `Cell type`, label = Sig)) +
+						geom_boxplot(outlier.size = 0) +
+						geom_jitter(size = 0.2, height = 0) +
+						facet_wrap( `Cell type` ~ Algorithm, scales = "free", ncol = 8, labeller = label_wrap_gen(width=10)) +
+						#scale_fill_manual(values = c("Neoadjuvant" = "#e31e1e", "High" = "#999999")) +
+						scale_fill_manual(values = getPalette( res %>% distinct(`Cell type`) %>% nrow )) +
+						scale_y_continuous(labels = scales::scientific_format(digits = 1)) +
+						theme_bw() +
+						theme(
+							panel.border = element_blank(), 
+							axis.line = element_line(),
+							panel.grid.major = element_line(size = 0.2),
+							panel.grid.minor = element_line(size = 0.1),
+							text = element_text(size=12),
+							legend.position="bottom",
+							strip.background = element_blank(),
+							axis.title.x  = element_text(margin = margin(t = 30, r = 10, b = 10, l = 10)),
+							axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+							axis.text.x = element_text(angle = 30, vjust = 0.5)
+						)
+				} %>%
+				ggsave(plot = .,
+							 "out_treatment_vs_high/tissue_composition_cibersort_vs_ARMET.pdf",
+							 useDingbats=FALSE,
+							 units = c("mm"),
+							 width = 183 ,
+							 height = 183/2*3 
+				)
+		}
+		
+		# Return all results
+		(.)
+		
+	} %>%
+	
+	# Plot ARMET polar plot
+	{
+
+	(.) %$% 
+		armet %>% 
+		ARMET_plotPolar(
+			size_geom_text = 2.5,
+			my_breaks=c(0, 0.01, 0.1,0.5,1),
+			prop_filter = 0.01,
+			barwidth = 0.5, barheight = 3,
+			legend_justification = 0.76
+		) %>%
+		ggsave(plot = .,
+					 "out_treatment_vs_high/tissue_composition_ARMET_polar.pdf",
+					 useDingbats=FALSE,
+					 units = c("mm"),
+					 width = 98 ,
+					 height = 98 + 25
 		)
-	}
+		
+		# Return all results
+		(.)
+		
+}
 
 
 
