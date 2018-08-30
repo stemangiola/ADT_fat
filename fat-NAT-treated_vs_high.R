@@ -1,12 +1,16 @@
 setwd("~/PhD/fat-NAT")
 set.seed(123)
 
+#############################################################
+# Load libraries ############################################
+
 # Libraries
 library(tidyverse)
 library(magrittr)
 library(foreach)
 source("~/third_party_sofware/utilities_normalization.R")
 library(sva)
+library(edgeR)
 
 # RUV
 library(ruv)
@@ -27,6 +31,9 @@ library(EGSEAdata)
 # Safe detach
 detach("package:AnnotationDbi", unload=TRUE, force = T)
 detach("package:hgu95av2.db", unload=TRUE, force = T)
+
+# Deconvolution
+library(ARMET)
 
 #############################################################
 # Build data set ############################################
@@ -59,15 +66,15 @@ annot =
 	read_csv("info.csv") %>%
 	filter(Label %in% c("Neoadjuvant", "High")) %>%
 	mutate(Recurrence =
-		ifelse(
-			Sample %in% c("11104PP","11204PP","11218PP","11086PP"),
-			1,
-			ifelse(
-				Sample %in% c("11182PP","11184PP","11160PP","11165PP"),
-				0,
-				NA
-			)
-		)
+				 	ifelse(
+				 		Sample %in% c("11104PP","11204PP","11218PP","11086PP"),
+				 		1,
+				 		ifelse(
+				 			Sample %in% c("11182PP","11184PP","11160PP","11165PP"),
+				 			0,
+				 			NA
+				 		)
+				 	)
 	) %>%
 	mutate_if(is.character, as.factor) %>%
 	arrange(Sample)
@@ -79,7 +86,7 @@ d = d[,annot %>% pull(Sample) %>% as.character()]
 
 # Function that takes annotated tibble and save MDS plot for the first 8 PC
 tbl_to_MDS_plot = function(my_df_mds, annot, read_count = "Read count", file_name, limits = c(-1.5, 1.5)){
-
+	
 	foreach(
 		components = list(c(1, 2), c(3, 4), c(5, 6), c(7, 8)), 
 		#my_df_mds = (.),
@@ -96,45 +103,45 @@ tbl_to_MDS_plot = function(my_df_mds, annot, read_count = "Read count", file_nam
 			}
 	} %>%
 		
-	# Annotate
-	left_join(annot) %>%
-	mutate(Sample = gsub("PP", "", as.character(Sample))) %>%
-	mutate_if(is.character, as.factor) %>%
+		# Annotate
+		left_join(annot) %>%
+		mutate(Sample = gsub("PP", "", as.character(Sample))) %>%
+		mutate_if(is.character, as.factor) %>%
 		
-	gather(Annotation, Value, c("Batch", "Label", "kit", "Recurrence")) %>%
-	{
-		
-		ggplot(data=(.), aes(x = x, y = y, label = Sample, PCx = PCx, PCy = PCy)) + 
-			geom_point(aes(fill = Value), size=3, shape=21, color="grey20") +
-			ggrepel::geom_text_repel(
-				size = 1, 
-				point.padding = 0.3, 
-				#fontface = 'bold', 
-				# label.padding = 0.1, 
-				# label.size = 0,
-				segment.size = 0.2,
-				seed = 123
-			) +
-			xlim(limits) +
-			ylim(limits) +
-			#geom_text(color = "grey20", size = 2 ) +
-			scale_fill_brewer(palette = "Set1") +
-			facet_grid(sprintf("PC %s", interaction(PCx, PCy))~Annotation) +
-			theme_bw() +
-			theme(
-				panel.border = element_blank(), 
-				axis.line = element_line(),
-				panel.grid.major = element_line(size = 0.2),
-				panel.grid.minor = element_line(size = 0.1),
-				text = element_text(size=12),
-				legend.position="bottom",
-				aspect.ratio=1,
-				strip.background = element_blank(),
-				axis.title.x  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-				axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10))
-			) +
-			xlab("Principal component x") + ylab("Principal component y") 
-	} %>%
+		gather(Annotation, Value, c("Batch", "Label", "kit", "Recurrence")) %>%
+		{
+			
+			ggplot(data=(.), aes(x = x, y = y, label = Sample, PCx = PCx, PCy = PCy)) + 
+				geom_point(aes(fill = Value), size=3, shape=21, color="grey20") +
+				ggrepel::geom_text_repel(
+					size = 1, 
+					point.padding = 0.3, 
+					#fontface = 'bold', 
+					# label.padding = 0.1, 
+					# label.size = 0,
+					segment.size = 0.2,
+					seed = 123
+				) +
+				xlim(limits) +
+				ylim(limits) +
+				#geom_text(color = "grey20", size = 2 ) +
+				scale_fill_brewer(palette = "Set1") +
+				facet_grid(sprintf("PC %s", interaction(PCx, PCy))~Annotation) +
+				theme_bw() +
+				theme(
+					panel.border = element_blank(), 
+					axis.line = element_line(),
+					panel.grid.major = element_line(size = 0.2),
+					panel.grid.minor = element_line(size = 0.1),
+					text = element_text(size=12),
+					legend.position="bottom",
+					aspect.ratio=1,
+					strip.background = element_blank(),
+					axis.title.x  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+					axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10))
+				) +
+				xlab("Principal component x") + ylab("Principal component y") 
+		} %>%
 		ggsave(plot = .,
 					 file_name,
 					 useDingbats=FALSE,
@@ -169,39 +176,39 @@ d_adj =
 		getPalette = colorRampPalette(brewer.pal(9, "Set1"))
 		
 		(.) %>%
-		gather(is_normalised, value, c("value", "value normalised")) %>%
-		{
-		ggplot((.), aes(value + 1, color=Sample)) +
-			geom_density() +
-			facet_grid(~ is_normalised) +
-			scale_color_manual(values = getPalette( (.) %>% distinct(Sample) %>% nrow )) +
-			#scale_color_brewer(palette = "Set1") +
-			scale_x_log10() +
-			theme_bw() +
-			theme(
-				panel.border = element_blank(), 
-				axis.line = element_line(),
-				panel.grid.major = element_line(size = 0.2),
-				panel.grid.minor = element_line(size = 0.1),
-				text = element_text(size=12),
-				legend.position="bottom",
-				aspect.ratio=1,
-				strip.background = element_blank(),
-				axis.title.x  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-				axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10))
+			gather(is_normalised, value, c("value", "value normalised")) %>%
+			{
+				ggplot((.), aes(value + 1, color=Sample)) +
+					geom_density() +
+					facet_grid(~ is_normalised) +
+					scale_color_manual(values = getPalette( (.) %>% distinct(Sample) %>% nrow )) +
+					#scale_color_brewer(palette = "Set1") +
+					scale_x_log10() +
+					theme_bw() +
+					theme(
+						panel.border = element_blank(), 
+						axis.line = element_line(),
+						panel.grid.major = element_line(size = 0.2),
+						panel.grid.minor = element_line(size = 0.1),
+						text = element_text(size=12),
+						legend.position="bottom",
+						aspect.ratio=1,
+						strip.background = element_blank(),
+						axis.title.x  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+						axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10))
+					)
+			} %>%
+			ggsave(plot = .,
+						 "out_treatment_vs_high/nat_vs_high_density.pdf",
+						 useDingbats=FALSE,
+						 units = c("mm"),
+						 width = 183 ,
+						 height = 183 /2 + 30 
 			)
-		} %>%
-		ggsave(plot = .,
-					 "out_treatment_vs_high/nat_vs_high_density.pdf",
-					 useDingbats=FALSE,
-					 units = c("mm"),
-					 width = 183 ,
-					 height = 183 /2 + 30 
-		)
 		
 		(.)
 	} %>%
-
+	
 	# Adjustment + MDS
 	{
 		
@@ -209,17 +216,17 @@ d_adj =
 		
 		# 1. Landscape
 		my_df_mds %>%
-		tbl_to_MDS_plot(
-			annot, 
-			read_count = "value normalised log",
-			file_name = "out_treatment_vs_high/mds_plot_landscape.pdf"
-		)
-
+			tbl_to_MDS_plot(
+				annot, 
+				read_count = "value normalised log",
+				file_name = "out_treatment_vs_high/mds_plot_landscape.pdf"
+			)
+		
 		# 2. MDS plot after batch correction
 		hk_600 = 
 			as.character(read.table("~/PhD/deconvolution/hk_600.txt", quote="\"", comment.char="")[,1]) %>% 
 			intersect(my_df_mds %>% pull(symbol))
-
+		
 		my_df_mds.RUV = 
 			my_df_mds %>%
 			dplyr::select(symbol, Sample, `value normalised log`) %>%
@@ -233,7 +240,7 @@ d_adj =
 			# Execute RUV
 			{
 				Y = (.)
-			
+				
 				RUV4(
 					Y %>% t(),
 					annot %>% 
@@ -251,7 +258,7 @@ d_adj =
 					RUVres = (.)
 					
 					# Plot unwanted covariates
-
+					
 					# Recalculated corrected expresison
 					matrix(
 						pmax(
@@ -262,16 +269,16 @@ d_adj =
 						nr=nrow(Y %>% t()),
 						ncol=ncol(Y %>% t())
 					) %>% 
-
-					magrittr::set_colnames(Y %>% rownames()) %>%
-					magrittr::set_rownames(Y %>% colnames()) %>%
-					as_tibble(rownames="Sample") %>%
-					bind_cols(W = RUVres$W) %>%
-					gather(symbol,`value RUV log`, -Sample, -W ) 
+						
+						magrittr::set_colnames(Y %>% rownames()) %>%
+						magrittr::set_rownames(Y %>% colnames()) %>%
+						as_tibble(rownames="Sample") %>%
+						bind_cols(W = RUVres$W) %>%
+						gather(symbol,`value RUV log`, -Sample, -W ) 
 				} 
 			} 
-			
-			# Produce MDS
+		
+		# Produce MDS
 		my_df_mds.RUV %>%
 			dplyr::select(Sample, symbol, `value RUV log`) %>%
 			tbl_to_MDS_plot(
@@ -279,7 +286,7 @@ d_adj =
 				read_count = "value RUV log",
 				file_name = "mds_plot_landscape_RUV.pdf"
 			)
-
+		
 		# 3. Combat correction of KIT
 		my_df_mds.Combat = 
 			my_df_mds %>%
@@ -296,42 +303,41 @@ d_adj =
 			)  %>%
 			as_tibble(rownames="symbol") %>%
 			gather(Sample,`value Combat log`, -symbol ) 
-			#left_join(my_df_mds) %>%
-			
-			# Produce MDS
-			my_df_mds.Combat %>%
+		#left_join(my_df_mds) %>%
+		
+		# Produce MDS
+		my_df_mds.Combat %>%
 			tbl_to_MDS_plot(
 				annot, 
 				read_count = "value Combat log",
 				file_name = "out_treatment_vs_high/mds_plot_landscape_Combat.pdf"
 			)
 		
-			# Return the normalisation data sets
-			my_df_mds %>%
-				left_join(my_df_mds.RUV) %>%
-				left_join(my_df_mds.Combat)
+		# Return the normalisation data sets
+		my_df_mds %>%
+			left_join(my_df_mds.RUV) %>%
+			left_join(my_df_mds.Combat)
 	} %>%
 	
 	# Attach annotation
 	left_join(annot) %>%
 	mutate_if(is.character, as.factor)
-	
+
 # Plot and save
 
 design = 
 	model.matrix(
 		~ 
-			0 +
 			d_adj %>% distinct(Sample, Label, W) %>% arrange(Sample) %>% pull(Label) +
 			d_adj %>% distinct(Sample, Label, W) %>% arrange(Sample) %>% pull(W)
 	) %>%
-	magrittr::set_colnames(c("high", "neoadjuvant", "W"))
+	magrittr::set_colnames(c("(Intercept)", "neoadjuvant", "W"))
 
-contrasts = 
-	makeContrasts(
-		MUvsWT=neoadjuvant-high,
-		levels=design
-	)
+# contrasts = 
+# 	makeContrasts(
+# 		MUvsWT=neoadjuvant-high,
+# 		levels=design
+# 	)
 
 DE.obj <-
 	d %>%
@@ -340,13 +346,13 @@ DE.obj <-
 	{
 		(.)[
 			(.)$genes$symbol %in% 
-			(
-				d_adj %>% 
-				distinct(symbol) %>% 
-				pull(symbol) %>% 
-				as.character
-			),
-		]
+				(
+					d_adj %>% 
+						distinct(symbol) %>% 
+						pull(symbol) %>% 
+						as.character
+				),
+			]
 	} %>%
 	
 	# Add group info to d
@@ -371,7 +377,7 @@ DE.obj <-
 			top = {
 				y %>%
 					glmFit(design) %>%
-					glmLRT(contrast = contrasts) %>%
+					glmLRT(coef = 2) %>%
 					topTags(n=999999) %$%
 					table %>%
 					as_tibble() %>%
@@ -486,53 +492,109 @@ DE.obj <-
 						(.)
 					}
 			},
-	
+			
 			# EGSEA
 			egsea.res = {
 				library(AnnotationDbi)
 				
 				y %>%
-				voom(design, plot=FALSE) %>%
+					voom(design, plot=FALSE) %>%
 					
-				# Run gene enrichment
-				{
-					v = (.)
-					colnames(v$genes) = c("ENTREZID", "length", "SYMBOL")
-					v$genes = v$genes[,c(1,3,2)]
-					browser()
-					idx = buildIdx(entrezIDs=rownames(v), species="human")
-					v %>%
-						egsea(
-							contrasts=contrasts, 
-							gs.annots=idx, 
-							symbolsMap=
-								v %$% 
-								genes %>% 
-								dplyr::select(1:2) %>%
-								setNames(c("FeatureID", "Symbols")),
-							baseGSEAs = egsea.base()[-c(4)],
-							sort.by="med.rank"
-						)
-				} %>%
-				{
-					save((.), file="out_treatment_vs_high/EGSEA_high_vs_treated.RData")
-					(.)
-				}
+					# Run gene enrichment
+					{
+						v = (.)
+						colnames(v$genes) = c("ENTREZID", "length", "SYMBOL")
+						v$genes = v$genes[,c(1,3,2)]
+						browser()
+						idx = buildIdx(entrezIDs=rownames(v), species="human")
+						v %>%
+							egsea(
+								contrasts=2, 
+								gs.annots=idx, 
+								symbolsMap=
+									v %$% 
+									genes %>% 
+									dplyr::select(1:2) %>%
+									setNames(c("FeatureID", "Symbols")),
+								baseGSEAs = egsea.base()[-c(4)],
+								sort.by="med.rank",
+								num.threads = 4
+							)
+					} %>%
+					{
+						save((.), file="out_treatment_vs_high/EGSEA_high_vs_treated.RData")
+						(.)
+					}
 				
 				detach("package:AnnotationDbi", unload=TRUE, force = T)
-	
+				
 			}
 		)
 	}
 
+# Plot DE genes
+d_adj %>% 
+	
+{
+	top_de = top %>% 
+		filter(FDR<0.05) %>%
+		mutate(`Fold change` = exp(abs(logFC))) %>%
+		filter(`Fold change` > 2)
+	
+	# Add annotation
+	(.) %>% 
+		inner_join(top_de) %>%
+		
+		# Shape raw and RUV counts
+		mutate(`value RUV` = exp(`value RUV log`)) %>%
+		rename(`Counts raw` = value, `Counts RUV` = `value RUV`) %>%
+		gather(is_normalised, `Read count`, c("Counts raw", "Counts RUV")) %>%
+		
+		# Set order factors
+		mutate(symbol = factor(symbol, levels = top_de %>% pull(symbol)))
+	
+} %>%
+	
+	# Plot
+{
+	ggplot((.), aes(x=is_normalised, y = `Read count`, fill = Label)) +
+		geom_boxplot(outlier.size = 0) +
+		geom_jitter(size = 0.2, height = 0) +
+		facet_wrap(~ symbol) +
+		scale_y_log10() +
+		scale_fill_manual(values = c("Neoadjuvant" = "#e31e1e", "High" = "#999999")) +
+		theme_bw() +
+		theme(
+			panel.border = element_blank(), 
+			axis.line = element_line(),
+			panel.grid.major = element_line(size = 0.2),
+			panel.grid.minor = element_line(size = 0.1),
+			text = element_text(size=12),
+			legend.position="bottom",
+			strip.background = element_blank(),
+			axis.title.x  = element_text(margin = margin(t = 30, r = 10, b = 10, l = 10)),
+			axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+			axis.text.x = element_text(angle = 30, vjust = 0)
+		)
+} %>%
+	ggsave(plot = .,
+				 "out_treatment_vs_high/boxplot_DE_genes.pdf",
+				 useDingbats=FALSE,
+				 units = c("mm"),
+				 width = 183 ,
+				 height = 183/2*3 
+	)
 
 # top %>% filter(FDR<0.05) %>% mutate(`Fold change` = exp(abs(logFC))) %>%  summarise(median(`Fold change`), max(`Fold change`))
-		
+
 
 # Manual annotation
 top %>%
-	# Annotate
 	filter(FDR<0.05) %>%
+	mutate(`Fold change` = exp(abs(logFC))) %>%
+	filter(`Fold change` > 2) %>%
+	
+	# Annotate
 	left_join(
 		biomaRt::getBM(
 			filters=c("hgnc_symbol"),
@@ -561,6 +623,14 @@ top %>%
 	mutate(
 		`Recurrent patterns` = 
 			ifelse(
+				grepl("axon|neuron|neuro|synapse|brain", name_1006),
+				"Neural",
+				`Recurrent patterns`
+			)
+	) %>%
+	mutate(
+		`Recurrent patterns` = 
+			ifelse(
 				grepl("immune|complement|leukocyte|inflammation|infection|neutrophil|myeloid", name_1006),
 				"Inflammation",
 				`Recurrent patterns`
@@ -574,20 +644,20 @@ top %>%
 	mutate_if(is.character, as.factor) %>%
 	{
 		df = (.)
-
+		
 		df %>% 
-		filter(`Recurrent patterns` == "Hormone/fat homeostasis") %>%
-		mutate(x = runif(n(), -1, 1), y=runif(n(), -1, 1)) %>%
-		bind_rows(
-			df %>% 
-				filter(`Recurrent patterns` == "Both") %>%
-				mutate(x = 1.2, y=runif(n(), -1, 1)) 
-		) %>%
-		bind_rows(
-			df %>% 
-				filter(`Recurrent patterns` == "Inflammation") %>%
-				mutate(x = runif(n(), 1.5, 3.5), y=runif(n(), -1, 1)) 
-		)
+			filter(`Recurrent patterns` == "Hormone/fat homeostasis") %>%
+			mutate(x = runif(n(), -1, 1), y=runif(n(), -1, 1)) %>%
+			bind_rows(
+				df %>% 
+					filter(`Recurrent patterns` == "Both") %>%
+					mutate(x = 1.2, y=runif(n(), -1, 1)) 
+			) %>%
+			bind_rows(
+				df %>% 
+					filter(`Recurrent patterns` == "Inflammation") %>%
+					mutate(x = runif(n(), 1.5, 3.5), y=runif(n(), -1, 1)) 
+			)
 	} %>%
 	ggplot(aes(x = x, y = y, label = symbol)) + 
 	geom_point(aes(fill=`Recurrent patterns`), shape=21, size = 3) +
@@ -612,4 +682,68 @@ top %>%
 		axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10))
 	)
 
-	
+# Tissue composition analyses
+source("~/PhD/deconvolution/ARMET_BK_Apr2017/comparison_methods/cibersort/CIBERSORT_annotated.R")
+
+tissue_composition.cs = 
+	d_adj %>%
+	mutate( `Count RUV` = exp(`value RUV log`)) %>%
+	dplyr::select(symbol, Sample, `Count RUV`) %>%
+	spread(Sample, `Count RUV`) %>%
+	group_by(symbol) %>% 
+	filter(row_number() == 1) %>%
+	ungroup() %>%
+	{
+		df = (.)
+		browser()
+		list(
+			
+			# Cibersort
+			cibersort = df %>%
+			{
+				file_name = sprintf("out_treatment_vs_high/read_count_for_cibersort.tab")
+				write_delim((.), path = file_name, delim = "\t")
+				file_name
+			} %>%
+				
+				# Inference
+			{
+				CIBERSORT("~/PhD/deconvolution/ARMET_BK_Apr2017/comparison_methods/cibersort/LM22.txt",	(.))$proportions %>%
+					as_tibble(rownames = "sample") %>% 
+					dplyr::select(-`P-value`, -Correlation, -RMSE) %>% 
+					gather(`Cell type`, value, -sample)
+			} %>%
+				
+				# test
+			{
+				temp = 	summary(simplexreg(formula = X ~ cov, data.frame(X = Y_hat_prop[,i], my_design)))$coefficients
+				res_dr = as_tibble(temp$mean)
+				res_dr = res_dr %>% add_column("name" = rownames(as.data.frame(temp)),.before = 1)
+				res_dr = res_dr %>% add_column("sig. annotation" = "")
+				res_dr$variable = c(i,i)
+				res_dr$algorithm = "simr"
+				res_dr
+			},
+			
+			# ARMET-tc
+			armet = 
+				df %>%
+				rename(gene=symbol) %>%
+				ARMET_tc(
+					my_design = 
+						design %>% 
+						as_tibble() %>% 
+						dplyr::mutate(
+							sample = 
+								df %>%
+								dplyr::select(-symbol) %>% 
+								colnames()
+						),
+					cov_to_test = "neoadjuvant"
+				)
+		)
+	}
+
+
+
+
