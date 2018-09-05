@@ -1010,3 +1010,25 @@ tissue_composition =
 
 
 
+
+
+#############################################################
+# qRT-PCR validation ########################################
+readxl::read_excel("PCR_validation/2018-01-24 High Risk Pat re_an.xls", skip = 34) %>% 
+mutate(Covariate = "high") %>%
+bind_rows(
+	readxl::read_excel("PCR_validation/2018-01-24 NAT Pat 2.xlsx", skip = 34) %>% 
+		mutate(Covariate = "neoadjuvant")
+) %>%
+mutate(Covariate = factor(Covariate)) %>%
+{
+	
+	# Print gene names
+	(.) %>% 
+		distinct(`Target Name`) %>% 
+		drop_na() %>% 
+		pull(`Target Name`) %>%
+		paste(collapse=", ") %>%
+		writeLines()
+}
+
