@@ -699,9 +699,9 @@ DE.obj %$%
 			)
 	) %>%
 	filter(!is.na(`Recurrent patterns`)) %>%
-	distinct(symbol, logFC, `Recurrent patterns`) %>%
+	distinct(symbol, logFC, logCPM, `Recurrent patterns`) %>%
 	group_by(symbol) %>%
-	summarise(`Recurrent patterns` = paste(`Recurrent patterns`, collapse=" | "), logFC = unique(logFC)) %>%
+	summarise(`Recurrent patterns` = paste(`Recurrent patterns`, collapse=" | "), logFC = unique(logFC), logCPM = unique(logCPM)) %>%
 	mutate_if(is.character, as.factor) %>%
 	{
 		df = (.)
