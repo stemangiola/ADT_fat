@@ -962,7 +962,7 @@ tissue_composition =
 							axis.line = element_line(),
 							panel.grid.major = element_line(size = 0.2),
 							panel.grid.minor = element_line(size = 0.1),
-							text = element_text(size=12),
+							text = element_text(size=9),
 							legend.position="bottom",
 							strip.background = element_blank(),
 							axis.title.x  = element_text(margin = margin(t = 30, r = 10, b = 10, l = 10)),
@@ -975,7 +975,7 @@ tissue_composition =
 							 useDingbats=FALSE,
 							 units = c("mm"),
 							 width = 183 ,
-							 height = 183/2*3 
+							 height = 400
 				)
 		}
 		
