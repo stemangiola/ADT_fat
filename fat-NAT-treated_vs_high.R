@@ -491,7 +491,44 @@ DE.obj <-
 						detach("package:superheat", unload=TRUE, force = T)
 						
 						(.)
-					}
+					} %>%
+					
+					# GSEA
+					{
+					
+					# source("https://bioconductor.org/biocLite.R")
+					# biocLite("GSEABase")
+					# biocLite("GSVA")
+					obesity_signature <- as.character(unlist(read.table("obesity_signature.csv", quote="\"", comment.char="")))
+
+					(.) %>%
+						arrange(desc(abs(logFC))) %>%
+						dplyr::select(symbol, logFC) %>%
+						drop_na() %>%
+						write_delim("out_treatment_vs_high/DE_path_obesity_GSEA.rnk", col_names = F, delim = "\t")
+					
+					system(sprintf("java -cp gsea2-2.2.2.jar -Xmx8g xtools.gsea.GseaPreranked -gmx %s -rnk %s -collapse false -mode Max_probe -norm meandiv -nperm 5000 -scoring_scheme weighted -include_only_symbols true -make_sets true -plot_top_x 100 -rnd_seed timestamp -set_max 500 -set_min 1 -zip_report false -out gsea -gui false", "obesity.gmt", "out_treatment_vs_high/DE_path_obesity_GSEA.rnk"))
+					
+					writeLines("Top genes present in the signature")
+					
+					(.) %>%
+						arrange(desc(abs(logFC))) %>%
+						left_join(
+							readLines("obesity.gmt") %>% 
+								strsplit("\t") %>% 
+								as.data.frame() %>% 
+								as_tibble() %>% 
+								setNames("symbol") %>%
+								mutate(is_in_obesity = TRUE)
+						) %>%
+						filter(is_in_obesity == TRUE) %>%
+						head(n=10) %>%
+						pull(symbol) %>%
+						paste(collapse=" ") %>%
+						writeLines()
+					
+					# Return original data frame
+				}
 			},
 			
 			# EGSEA
