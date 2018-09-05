@@ -766,9 +766,11 @@ DE.obj %$%
 				 height = 283 + 20 
 	)
 
+
 #############################################################
 # Tissue composition analyses ###############################
 
+source("~/PhD/deconvolution/ARMET_BK_Apr2017/comparison_methods/cibersort/CIBERSORT_annotated.R")
 
 tissue_composition = 
 	d_adj %>%
@@ -820,8 +822,8 @@ tissue_composition =
 									c
 							) %>%
 							filter(cov == "LabelNeoadjuvant") %>%
-							mutate(FDR = p.adjust(`Pr(>|z|)`, "BH")) %>%
-							mutate(Sig = ifelse(FDR < 0.05, "*", "")) 
+							mutate(FDR = p.adjust(`Pr(>|z|)`, "bonferroni")) %>%
+							mutate(Sig = ifelse(FDR, "*", "")) 
 					} %>%
 					
 					# Unite proportions with test
