@@ -710,44 +710,62 @@ DE.obj %$%
 		
 		df %>% 
 			filter(`Recurrent patterns` == "Hormone/fat homeostasis") %>%
-			mutate(x = runif(n(), -1, 1), y=runif(n(), -1, 1)) %>%
+			mutate(x = runif(n(), -1, 0.5), y=runif(n(), -1, 0.5)) %>%
 			bind_rows(
 				df %>% 
 					filter(`Recurrent patterns` == "Hormone/fat homeostasis | Inflammation") %>%
-					mutate(x = 1.2, y=runif(n(), -1, 1)) 
+					mutate(x = 1.2, y=runif(n(), -1, 0.5)) 
 			) %>%
 			bind_rows(
 				df %>% 
 					filter(`Recurrent patterns` == "Inflammation") %>%
-					mutate(x = runif(n(), 1.5, 3.5), y=runif(n(), -1, 1)) 
+					mutate(x = runif(n(), 2.5, 4), y=runif(n(), -1, 0.5)) 
 			) %>%
 			bind_rows(
 				df %>% 
 					filter(grepl("Neural", `Recurrent patterns`)) %>%
-					mutate(x = runif(n(), 0.2, 2.2), y=runif(n(), -3, -1)) 
+					mutate(x = runif(n(), 0.2, 1.7), y=runif(n(), -5, -3.5)) 
 			)
 	} %>%
-	ggplot(aes(x = x, y = y, label = symbol)) + 
-	geom_point(aes(fill=`Recurrent patterns`), shape=21, size = 3) +
-	ggrepel::geom_text_repel(
-		size = 3, 
-		point.padding = 0.3, 
-		segment.size = 0.2,
-		seed = 123
-	) +
-	scale_fill_brewer(palette = "Set1") +
-	theme_bw() +
-	theme(
-		panel.border = element_blank(), 
-		axis.line = element_line(),
-		panel.grid.major = element_line(size = 0.2),
-		panel.grid.minor = element_line(size = 0.1),
-		text = element_text(size=12),
-		legend.position="bottom",
-		aspect.ratio=2/4.5,
-		strip.background = element_blank(),
-		axis.title.x  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-		axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10))
+	{
+		set.seed(123)
+		my_max = (.) %>% pull(logFC) %>% max
+		ggplot((.), aes(x = x, y = y, label = symbol)) + 
+		geom_point(aes(fill=logFC, size = logCPM), shape=21) +
+			ggrepel::geom_text_repel(
+				size = 3, 
+				point.padding = 0.3, 
+				segment.size = 0.2,
+				seed = 123
+			) +
+			scale_fill_distiller(
+				palette = "Spectral",
+				na.value = 'white',
+				direction = 1,
+				limits=c(	-my_max,my_max)
+			) +
+		#scale_fill_brewer(palette = "Set1") +
+		theme_bw() +
+		theme(
+			panel.border = element_blank(), 
+			axis.line = element_line(),
+			panel.grid.major = element_blank(),
+			panel.grid.minor = element_blank(),
+			axis.title =  element_blank(),
+			axis.text = element_blank(),
+			axis.ticks = element_blank(),
+			text = element_text(size=12),
+			legend.position="bottom",
+			aspect.ratio=2/4.5,
+			strip.background = element_blank()
+		)
+	} %>%
+	ggsave(plot = .,
+				 "out_treatment_vs_high/plot_DE_recurrent_pathways.pdf",
+				 useDingbats=FALSE,
+				 units = c("mm"),
+				 width = 283 ,
+				 height = 283 + 20 
 	)
 
 #############################################################
