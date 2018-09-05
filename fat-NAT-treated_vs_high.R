@@ -383,6 +383,8 @@ DE.obj <-
 					table %>%
 					as_tibble() %>%
 					
+					# Mark DE genes
+					mutate(is_de = FDR < 0.05 & abs(logFC) > 1) %>%
 					# Write 
 					{
 						(.) %>% write_csv("out_treatment_vs_high/DE_table_RUV.csv")
@@ -397,16 +399,16 @@ DE.obj <-
 							y, 
 							de.tags=
 								top %>% 
-								filter(FDR < 0.05) %>% 
+								filter(is_de) %>% 
 								pull(GeneID)
 						) %>%
 							do.call(bind_cols, .)	%>%
 							mutate(symbol = y$genes$symbol) %>%
 							left_join(top) %>%
-							mutate(symbol = ifelse(FDR<0.05, symbol, "")) %>%
+							mutate(symbol = ifelse(is_de, symbol, "")) %>%
 							{
 								ggplot((.), aes(x = A, y = M,  label=symbol)) +
-									geom_point(aes(color = FDR<0.05, alpha = FDR<0.05, size = FDR<0.05)) +
+									geom_point(aes(color = is_de, alpha = is_de, size = is_de)) +
 									ggrepel::geom_text_repel(
 										size = 1.6, 
 										point.padding = 0.3, 
@@ -466,7 +468,7 @@ DE.obj <-
 								symbol %in% 
 									(
 										top %>% 
-											filter(FDR < 0.05) %>% 
+											filter(is_de) %>% 
 											pull(symbol)
 									)
 							) %>%
@@ -599,9 +601,7 @@ d_adj %>%
 {
 	top_de = DE.obj %$%
 		top %>% 
-		filter(FDR<0.05) %>%
-		mutate(`Fold change` = exp(abs(logFC))) %>%
-		filter(`Fold change` > 2)
+		filter(is_de) 
 	
 	# Add annotation
 	(.) %>% 
@@ -654,9 +654,7 @@ d_adj %>%
 
 DE.obj %$%
 	top %>%
-	filter(FDR<0.05) %>%
-	mutate(`Fold change` = exp(abs(logFC))) %>%
-	filter(`Fold change` > 2) %>%
+	filter(is_de) %>%
 	
 	# Annotate
 	left_join(
