@@ -410,7 +410,7 @@ DE.obj <-
 								ggplot((.), aes(x = A, y = M,  label=symbol)) +
 									geom_point(aes(color = is_de, alpha = is_de, size = is_de)) +
 									ggrepel::geom_text_repel(
-										size = 1.6, 
+										size = 1, 
 										point.padding = 0.3, 
 										segment.size = 0.2,
 										seed = 123
@@ -425,7 +425,7 @@ DE.obj <-
 										panel.grid.major = element_line(size = 0.2),
 										panel.grid.minor = element_line(size = 0.1),
 										text = element_text(size=12),
-										legend.position="bottom",
+										legend.position='none',
 										aspect.ratio=1,
 										strip.background = element_blank(),
 										axis.title.x  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
@@ -437,8 +437,8 @@ DE.obj <-
 										 "out_treatment_vs_high/plot_smear_RUV.pdf",
 										 useDingbats=FALSE,
 										 units = c("mm"),
-										 width = 183 ,
-										 height = 183 
+										 width = 89 ,
+										 height = 89 
 							)
 						
 						(.)
