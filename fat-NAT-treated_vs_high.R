@@ -35,6 +35,23 @@ library(EGSEAdata)
 # Deconvolution
 library(ARMET)
 
+# Set theme plots
+my_theme = 	
+	theme_bw() +
+	theme(
+		panel.border = element_blank(),
+		axis.line = element_line(),
+		panel.grid.major = element_line(size = 0.2),
+		panel.grid.minor = element_line(size = 0.1),
+		text = element_text(size=8),
+		legend.position="bottom",
+		aspect.ratio=1,
+		axis.text.x = element_text(angle = 90, hjust = 1),
+		strip.background = element_blank(),
+		axis.title.x  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+		axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10))
+	)
+
 #############################################################
 # Build data set ############################################
 
@@ -49,7 +66,7 @@ load("counts_paired_end.RData")
 
 d$genes$symbol <- 
 	AnnotationDbi:::mapIds(
-		org.Hs.eg.db,
+		org.Hs.eg.db::org.Hs.eg.db,
 		keys=as.character(d$genes$GeneID),
 		column="SYMBOL",
 		keytype="ENTREZID",
@@ -80,6 +97,10 @@ annot =
 	arrange(Sample)
 
 d = d[,annot %>% pull(Sample) %>% as.character()]
+
+# print sequencing output
+writeLines("Sequencing output")
+d$counts %>% colSums() %>% summary() 
 
 #############################################################
 # Normalise #################################################
@@ -173,7 +194,7 @@ d_adj =
 	# Plot densities
 	{
 		
-		getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+		getPalette = colorRampPalette(RColorBrewer::brewer.pal(9, "Set1"))
 		
 		(.) %>%
 			gather(is_normalised, value, c("value", "value normalised")) %>%
@@ -497,40 +518,41 @@ DE.obj <-
 					
 					# GSEA
 					{
-					
-					# source("https://bioconductor.org/biocLite.R")
-					# biocLite("GSEABase")
-					# biocLite("GSVA")
-					obesity_signature <- as.character(unlist(read.table("obesity_signature.csv", quote="\"", comment.char="")))
-
-					(.) %>%
-						arrange(desc(abs(logFC))) %>%
-						dplyr::select(symbol, logFC) %>%
-						drop_na() %>%
-						write_delim("out_treatment_vs_high/DE_path_obesity_GSEA.rnk", col_names = F, delim = "\t")
-					
-					system(sprintf("java -cp gsea2-2.2.2.jar -Xmx8g xtools.gsea.GseaPreranked -gmx %s -rnk %s -collapse false -mode Max_probe -norm meandiv -nperm 5000 -scoring_scheme weighted -include_only_symbols true -make_sets true -plot_top_x 100 -rnd_seed timestamp -set_max 500 -set_min 1 -zip_report false -out gsea -gui false", "obesity.gmt", "out_treatment_vs_high/DE_path_obesity_GSEA.rnk"))
-					
-					writeLines("Top genes present in the signature")
-					
-					(.) %>%
-						arrange(desc(abs(logFC))) %>%
-						left_join(
-							readLines("obesity.gmt") %>% 
-								strsplit("\t") %>% 
-								as.data.frame() %>% 
-								as_tibble() %>% 
-								setNames("symbol") %>%
-								mutate(is_in_obesity = TRUE)
-						) %>%
-						filter(is_in_obesity == TRUE) %>%
-						head(n=10) %>%
-						pull(symbol) %>%
-						paste(collapse=" ") %>%
-						writeLines()
-					
-					# Return original data frame
-				}
+						
+						# source("https://bioconductor.org/biocLite.R")
+						# biocLite("GSEABase")
+						# biocLite("GSVA")
+						obesity_signature <- as.character(unlist(read.table("obesity_signature.csv", quote="\"", comment.char="")))
+						
+						(.) %>%
+							arrange(desc(abs(logFC))) %>%
+							dplyr::select(symbol, logFC) %>%
+							drop_na() %>%
+							write_delim("out_treatment_vs_high/DE_path_obesity_GSEA.rnk", col_names = F, delim = "\t")
+						
+						system(sprintf("java -cp gsea2-2.2.2.jar -Xmx8g xtools.gsea.GseaPreranked -gmx %s -rnk %s -collapse false -mode Max_probe -norm meandiv -nperm 5000 -scoring_scheme weighted -include_only_symbols true -make_sets true -plot_top_x 100 -rnd_seed timestamp -set_max 500 -set_min 1 -zip_report false -out gsea -gui false", "obesity.gmt", "out_treatment_vs_high/DE_path_obesity_GSEA.rnk"))
+						
+						writeLines("Top genes present in the signature")
+						
+						(.) %>%
+							arrange(desc(abs(logFC))) %>%
+							left_join(
+								readLines("obesity.gmt") %>% 
+									strsplit("\t") %>% 
+									as.data.frame() %>% 
+									as_tibble() %>% 
+									setNames("symbol") %>%
+									mutate(is_in_obesity = TRUE)
+							) %>%
+							filter(is_in_obesity == TRUE) %>%
+							head(n=10) %>%
+							pull(symbol) %>%
+							paste(collapse=" ") %>%
+							writeLines()
+						
+						# Return original data frame
+						(.)
+					}
 			},
 			
 			# EGSEA
@@ -538,7 +560,7 @@ DE.obj <-
 				library(AnnotationDbi)
 				
 				file_name = "out_treatment_vs_high/EGSEA_high_vs_treated.RData"
-
+				
 				er = switch(
 					
 					# Condition
@@ -561,7 +583,7 @@ DE.obj <-
 							v$genes = v$genes[,c(1,3,2)]
 							
 							idx = buildIdx(entrezIDs=rownames(v), species="human")
-
+							
 							v %>%
 								egsea(
 									contrasts=2, 
@@ -593,6 +615,10 @@ DE.obj <-
 		
 	}
 
+# Summary EGSEA
+t = topSets(DE.obj$egsea.res, names.only=FALSE, number = Inf, verbose = FALSE)
+t[grep("LIM_", rownames(t)), c("p.adj", "Rank", "med.rank", "vote.rank")]
+
 #############################################################
 # Plot DE ###################################################
 
@@ -620,9 +646,10 @@ d_adj %>%
 	# Plot
 {
 	ggplot((.), aes(x=is_normalised, y = `Read count`, fill = Label)) +
-		geom_boxplot(outlier.size = 0) +
-		geom_jitter(size = 0.2, height = 0) +
-		facet_wrap(~ symbol) +
+		geom_boxplot(outlier.size = 0, lwd=0.2, position = position_dodge(width=0.8)) +
+		geom_point(position=position_jitterdodge(dodge.width=0.8), size = 0.2, shape = 21 ) +
+		#geom_jitter(height = 0, width = 0.2) +
+		facet_wrap(~ symbol, scale="free") +
 		scale_y_log10() +
 		scale_fill_manual(values = c("Neoadjuvant" = "#e31e1e", "High" = "#999999")) +
 		theme_bw() +
@@ -631,12 +658,12 @@ d_adj %>%
 			axis.line = element_line(),
 			panel.grid.major = element_line(size = 0.2),
 			panel.grid.minor = element_line(size = 0.1),
-			text = element_text(size=12),
+			text = element_text(size=9),
 			legend.position="bottom",
 			strip.background = element_blank(),
 			axis.title.x  = element_text(margin = margin(t = 30, r = 10, b = 10, l = 10)),
 			axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-			axis.text.x = element_text(angle = 30, vjust = 0)
+			axis.text.x = element_text(angle = 30, vjust = 0.5)
 		)
 } %>%
 	ggsave(plot = .,
@@ -698,6 +725,12 @@ DE.obj %$%
 				`Recurrent patterns`
 			)
 	) %>%
+	
+	{
+		(.) %>% write_csv("Supplementary_table_1_anotation_DE.csv")
+		(.)
+	} %>%
+	
 	filter(!is.na(`Recurrent patterns`)) %>%
 	distinct(symbol, logFC, logCPM, `Recurrent patterns`) %>%
 	group_by(symbol) %>%
@@ -729,7 +762,7 @@ DE.obj %$%
 		set.seed(123)
 		my_max = (.) %>% pull(logFC) %>% max
 		ggplot((.), aes(x = x, y = y, label = symbol)) + 
-		geom_point(aes(fill=logFC, size = logCPM), shape=21) +
+			geom_point(aes(fill=logFC, size = logCPM), shape=21) +
 			ggrepel::geom_text_repel(
 				size = 3, 
 				point.padding = 0.3, 
@@ -742,21 +775,21 @@ DE.obj %$%
 				direction = 1,
 				limits=c(	-my_max,my_max)
 			) +
-		#scale_fill_brewer(palette = "Set1") +
-		theme_bw() +
-		theme(
-			panel.border = element_blank(), 
-			axis.line = element_line(),
-			panel.grid.major = element_blank(),
-			panel.grid.minor = element_blank(),
-			axis.title =  element_blank(),
-			axis.text = element_blank(),
-			axis.ticks = element_blank(),
-			text = element_text(size=12),
-			legend.position="bottom",
-			aspect.ratio=2/4.5,
-			strip.background = element_blank()
-		)
+			#scale_fill_brewer(palette = "Set1") +
+			theme_bw() +
+			theme(
+				panel.border = element_blank(), 
+				axis.line = element_line(),
+				panel.grid.major = element_blank(),
+				panel.grid.minor = element_blank(),
+				axis.title =  element_blank(),
+				axis.text = element_blank(),
+				axis.ticks = element_blank(),
+				text = element_text(size=12),
+				legend.position="bottom",
+				aspect.ratio=2/4.5,
+				strip.background = element_blank()
+			)
 	} %>%
 	ggsave(plot = .,
 				 "out_treatment_vs_high/plot_DE_recurrent_pathways.pdf",
@@ -782,7 +815,7 @@ tissue_composition =
 	ungroup() %>%
 	{
 		df = (.)
-
+		
 		list(
 			
 			# Cibersort
@@ -799,7 +832,7 @@ tissue_composition =
 					as_tibble(rownames = "Sample") %>% 
 					dplyr::select(-`P-value`, -Correlation, -RMSE)
 			} %>%
-			
+				
 				# test
 			{
 				proportions = (.)
@@ -879,8 +912,8 @@ tissue_composition =
 	
 	# plot Comparison
 	{
-		getPalette = colorRampPalette(brewer.pal(9, "Set1"))
-	
+		getPalette = colorRampPalette(RColorBrewer::brewer.pal(9, "Set1"))
+		
 		bind_rows(
 			
 			# Cibersort
@@ -942,34 +975,34 @@ tissue_composition =
 			} %>%
 				mutate(Algorithm = "ARMET") 
 		) %>%
-				
-		# plot
+			
+			# plot
 		{
 			res = (.)
 			
 			res %>%
-				{
-					ggplot((.), aes(x=Label, y = Proportion, fill = `Cell type`, label = Sig)) +
-						geom_boxplot(outlier.size = 0) +
-						geom_jitter(size = 0.2, height = 0) +
-						facet_wrap( `Cell type` ~ Algorithm, scales = "free", ncol = 8, labeller = label_wrap_gen(width=10)) +
-						#scale_fill_manual(values = c("Neoadjuvant" = "#e31e1e", "High" = "#999999")) +
-						scale_fill_manual(values = getPalette( res %>% distinct(`Cell type`) %>% nrow )) +
-						scale_y_continuous(labels = scales::scientific_format(digits = 1)) +
-						theme_bw() +
-						theme(
-							panel.border = element_blank(), 
-							axis.line = element_line(),
-							panel.grid.major = element_line(size = 0.2),
-							panel.grid.minor = element_line(size = 0.1),
-							text = element_text(size=9),
-							legend.position="bottom",
-							strip.background = element_blank(),
-							axis.title.x  = element_text(margin = margin(t = 30, r = 10, b = 10, l = 10)),
-							axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-							axis.text.x = element_text(angle = 30, vjust = 0.5)
-						)
-				} %>%
+			{
+				ggplot((.), aes(x=Label, y = Proportion, fill = `Cell type`, label = Sig)) +
+					geom_boxplot(outlier.size = 0) +
+					geom_jitter(size = 0.2, height = 0) +
+					facet_wrap( `Cell type` ~ Algorithm, scales = "free", ncol = 8, labeller = label_wrap_gen(width=10)) +
+					#scale_fill_manual(values = c("Neoadjuvant" = "#e31e1e", "High" = "#999999")) +
+					scale_fill_manual(values = getPalette( res %>% distinct(`Cell type`) %>% nrow )) +
+					scale_y_continuous(labels = scales::scientific_format(digits = 1)) +
+					theme_bw() +
+					theme(
+						panel.border = element_blank(), 
+						axis.line = element_line(),
+						panel.grid.major = element_line(size = 0.2),
+						panel.grid.minor = element_line(size = 0.1),
+						text = element_text(size=9),
+						legend.position="bottom",
+						strip.background = element_blank(),
+						axis.title.x  = element_text(margin = margin(t = 30, r = 10, b = 10, l = 10)),
+						axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+						axis.text.x = element_text(angle = 30, vjust = 0.5)
+					)
+			} %>%
 				ggsave(plot = .,
 							 "out_treatment_vs_high/tissue_composition_cibersort_vs_ARMET.pdf",
 							 useDingbats=FALSE,
@@ -986,28 +1019,28 @@ tissue_composition =
 	
 	# Plot ARMET polar plot
 	{
-
-	(.) %$% 
-		armet %>% 
-		ARMET_plotPolar(
-			size_geom_text = 2.5,
-			my_breaks=c(0, 0.01, 0.1,0.5,1),
-			prop_filter = 0.01,
-			barwidth = 0.5, barheight = 3,
-			legend_justification = 0.76
-		) %>%
-		ggsave(plot = .,
-					 "out_treatment_vs_high/tissue_composition_ARMET_polar.pdf",
-					 useDingbats=FALSE,
-					 units = c("mm"),
-					 width = 98 ,
-					 height = 98 + 25
-		)
+		
+		(.) %$% 
+			armet %>% 
+			ARMET_plotPolar(
+				size_geom_text = 2.5,
+				my_breaks=c(0, 0.01, 0.1,0.5,1),
+				prop_filter = 0.01,
+				barwidth = 0.5, barheight = 3,
+				legend_justification = 0.76
+			) %>%
+			ggsave(plot = .,
+						 "out_treatment_vs_high/tissue_composition_ARMET_polar.pdf",
+						 useDingbats=FALSE,
+						 units = c("mm"),
+						 width = 98 ,
+						 height = 98 + 25
+			)
 		
 		# Return all results
 		(.)
 		
-}
+	}
 
 
 
@@ -1016,21 +1049,263 @@ tissue_composition =
 
 #############################################################
 # qRT-PCR validation ########################################
-readxl::read_excel("PCR_validation/2018-01-24 High Risk Pat re_an.xls", skip = 34) %>% 
-mutate(Covariate = "high") %>%
-bind_rows(
-	readxl::read_excel("PCR_validation/2018-01-24 NAT Pat 2.xlsx", skip = 34) %>% 
-		mutate(Covariate = "neoadjuvant")
-) %>%
-mutate(Covariate = factor(Covariate)) %>%
+
+# Plot of other potential markers
+c(
+	"CYP1A1", 
+	"IGKV1D-39", 
+	"IGKV1-39", 
+	"MMP8", 
+	"SLC16A12", 
+	"ART3", 
+	"DIO2", 
+	"OR51E2", 
+	"MUC16", 
+	"TPRG1", 
+	"IL4I1"
+) 
+
+
+	
+	
+DE.obj$top %>% 
+	filter(abs(logFC)>1.5 ) %>% 
+	head(n=40) %>% 
+	pull(symbol)%>%
+
 {
 	
-	# Print gene names
-	(.) %>% 
-		distinct(`Target Name`) %>% 
-		drop_na() %>% 
-		pull(`Target Name`) %>%
-		paste(collapse=", ") %>%
-		writeLines()
+	gene_to_validate = (.)
+	
+	# Annotate
+	biomaRt::getBM(
+		filters=c("hgnc_symbol"),
+		values = gene_to_validate, 
+		attributes = c(
+			'ensembl_gene_id', 
+			'entrezgene','hgnc_symbol',
+			'description',
+			'name_1006',    'namespace_1003', 'definition_1006'
+		),
+		mart = biomaRt::useMart("ensembl",dataset="hsapiens_gene_ensembl")
+	) %>%
+		as_tibble() %>%
+		dplyr::rename(symbol=hgnc_symbol) %>%
+		filter(namespace_1003 %in% c("biological_process", "molecular_function")) %>%
+		select(symbol, description, name_1006) %>%
+		{
+			(.) %>% write_csv("out_treatment_vs_high/annotation_for_gene_validation.csv")
+			(.)
+		}
+	
+	d_adj %>% 
+		filter(symbol %in% gene_to_validate) %>%
+		
+		# Shape raw and RUV counts
+		mutate(`Counts RUV` = exp(`value RUV log`)) %>%
+		dplyr::rename(`Counts raw` = value) %>%
+		gather(is_normalised, `Read count`, c("Counts raw", "Counts RUV")) %>%
+		
+		# Set order factors
+		mutate(symbol = factor(symbol, levels = gene_to_validate)) %>%
+		
+		# Plot
+		ggplot(aes(x=is_normalised, y = `Read count`, fill = Label)) +
+		geom_boxplot(outlier.size = 0, lwd=0.2, position = position_dodge(width=0.8)) +
+		geom_point(position=position_jitterdodge(dodge.width=0.8), size = 0.2, shape = 21 ) +
+		#geom_jitter(height = 0, width = 0.2) +
+		facet_wrap(~ symbol, scale="free") +
+		scale_y_log10() +
+		scale_fill_manual(values = c("Neoadjuvant" = "#e31e1e", "High" = "#999999")) +
+		my_theme
 }
+	
+	
+# Validated genes	
+readxl::read_excel("PCR_validation/Ryan qPCR fat analysis Oct18.xlsx", sheet = "raw") %>%
+	dplyr::rename(CSDC2 = CSCD5) %>%
+	bind_rows(
+		(.) %>% head(n=3) %>% mutate_if(is.character, function(.) "HG02")  %>% mutate_if(is.numeric, function(.) NA)
+	) %>%
+	gather(symbol, `qRT-PCR CT value`, -`Sample Name`) %>%
+		
+	# Plot raw values
+	{
+		(
+			(.) %>%
+				ggplot(., aes(x=symbol, y=`qRT-PCR CT value`, color=`Sample Name`)) + 
+				geom_point() +
+				my_theme 
+		) %>%
+		plot()
+	
+		(.)
+	} %>%
+		
+	# Filter outliers
+	mutate(is_outlier = `qRT-PCR CT value` < 20 | is.na(`qRT-PCR CT value`)) %>%
+	group_by(`Sample Name`, symbol) %>%
+	mutate(how_many_outliers = is_outlier %>% sum ) %>%
+	ungroup() %>%
+	filter(!is_outlier | how_many_outliers == 3) %>%
+	
+	# Calculate normalised means
+	group_by(`Sample Name`, symbol) %>%
+	summarise(`qRT-PCR CT value mean` = mean(`qRT-PCR CT value`, na.rm=T)) %>%
+	ungroup() %>%
+		
+	# Add control value
+	left_join(
+		readxl::read_excel("PCR_validation/Ryan qPCR fat analysis Oct18.xlsx", sheet = "average") %>%
+			select(`Sample Name`, Control)
+	) %>%
+		
+	# Normalise
+	mutate(`qRT-PCR CT value mean normalised log` = -(`qRT-PCR CT value mean` - Control)) %>%
+	mutate(`qRT-PCR CT value mean normalised` = 2^`qRT-PCR CT value mean normalised log`) %>%
+		
+	# Integrate the gene LYZ
+	bind_rows(
+		readxl::read_excel("PCR_validation/Ryan qPCR fat analysis Oct18.xlsx", sheet = "previousPatRun") %>%
+			mutate(`qRT-PCR CT value mean normalised log` = `qRT-PCR CT value mean normalised` %>% log2)
+	) %>%
+	
+	# Plot normalised values and return
+	{
+		(
+			(.) %>%
+			ggplot(aes(x=symbol, y=`qRT-PCR CT value mean normalised`, color=`Sample Name`)) + 
+			geom_point() +
+			scale_y_log10() +
+			my_theme
+		) %>%
+		print()
+		
+		(.)
+	} %>%
+		
+	# Integrate RNA seq data
+	filter(!symbol %in% c("GAPDH", "TBP", "POL2")) %>%
+	mutate(`Sample Name` = gsub("HG0", "HG", `Sample Name`)) %>%
+	left_join(
+		read_csv("PCR_to_RNAseq_sampleID_conversion.csv") %>%
+			mutate(prefix="PP") %>%
+			unite(Sample, c(Sample, prefix), sep	="")
+	) %>%
+	select(symbol, `qRT-PCR CT value mean normalised log`, Sample) %>%
+	
+	# Add annotation
+	left_join( d_adj %>% distinct(Sample, Label) ) %>%
+		
+	# Plot vs. RNA sequencing
+	{
+		(.) %>%
+			left_join(
+				d_adj %>% 
+					dplyr::rename(`Counts RUV log` = `value RUV log`) %>%
+					mutate(`Counts raw log` = value %>% `+` (1) %>% log)
+			) %>%
+			
+			# Standardise gene abundance
+			gather(Source, `Gene transcript abundance log`, c("Counts raw log", "Counts RUV log", "qRT-PCR CT value mean normalised log")) %>%
+			group_by(symbol, Source) %>%
+			mutate(`Gene transcript abundance log standardised` =  `Gene transcript abundance log` %>% scale %>% as.numeric) %>%
+			ungroup() %>%
 
+			# Plot
+			{
+				ggplot((.), aes(x=Source, y =`Gene transcript abundance log standardised`, fill = Label)) +
+				geom_boxplot(outlier.size = 0, lwd=0.2, position = position_dodge(width=0.8)) +
+				geom_point(position=position_jitterdodge(dodge.width=0.8), size = 0.2, shape = 21 ) +
+				facet_wrap(~ symbol, scale="free") +
+				scale_fill_manual(values = c("Neoadjuvant" = "#e31e1e", "High" = "#999999")) +
+				my_theme
+			} %>% 
+			print()
+		
+		(.)
+	} %>%
+	
+	# Plot t-test
+	{
+		(.) %>%
+		mutate(Label = ifelse(Label == "High", "Naive", "Treated")) %>%
+		{
+			ggplot((.), aes(x=Label, y =`qRT-PCR CT value mean normalised log`, fill = Label)) +
+			geom_boxplot(outlier.size = 0, lwd=0.2, position = position_dodge(width=0.8)) +
+			geom_point(position=position_jitterdodge(dodge.width=0.8), size = 0.05, shape = 21 ) +
+			# ggpubr::stat_compare_means(	method = "t.test", size=0.8) +
+			facet_wrap(~ symbol, scales = "free") +
+			scale_fill_manual(values = c("Treated" = "#e31e1e", "Naive" = "#999999")) +
+			my_theme +
+			theme(
+				text = element_text(size=4),
+				legend.key.size = unit(3, "mm"),
+				axis.line = element_line(size = 0.2),
+				axis.ticks = element_line(size = 0.2)
+			) 
+		}  %>%
+		ggsave(plot = .,
+		 "out_treatment_vs_high/PCR_validation_boxplot.pdf",
+		 useDingbats=FALSE,
+		 units = c("mm"),
+		 width = 89 ,
+		 height = 89
+		)
+		
+		(.)
+	} %>%
+
+	# T-test
+	group_by(symbol) %>%
+	do(
+
+		(.) %>% 
+			mutate(
+				`p-value` = t.test(`qRT-PCR CT value mean normalised log` ~ Label, .)$p.value / 2
+			) %>%
+			distinct(symbol, `p-value`)
+	) %>%
+	ungroup() %>%
+	mutate(`p-value adjusted` = `p-value` %>% p.adjust("bonferroni")) %>%
+  mutate_if(is.numeric, function(x) x %>% formatC(format = "e", digits = 2))
+	
+	
+	
+
+
+#############################################################
+# BMI check #################################################
+
+read_csv("Patient height_weight_BMI_NMC_treated_vs_naive.csv") %>%
+	rename(`Sample Name` = `Patient ID` ) %>%
+	mutate(`Sample Name` = gsub("HG0", "HG", `Sample Name`)) %>%
+	left_join(
+		read_csv("PCR_to_RNAseq_sampleID_conversion.csv") %>%
+			mutate(prefix="PP") %>%
+			unite(Sample, c(Sample, prefix), sep	="")
+	) %>%
+	
+	# Add annotation
+	left_join( d_adj %>% distinct(Sample, Label)) %>%
+	mutate(Label = ifelse(Label == "High", "Naive", "Treated")) %>%
+	mutate(Labels = as.factor(Label)) %>%
+	
+	# Plot
+	{
+		(.) %>%
+		ggplot(aes(x = Label, y = BMI, fill = Label)) +
+		geom_boxplot(outlier.size = 0, lwd=0.2, position = position_dodge(width=0.8)) +
+		geom_point(position=position_jitterdodge(dodge.width=0.8), size = 0.05, shape = 21 ) +
+		ggpubr::stat_compare_means(	method = "t.test") +
+		scale_fill_manual(values = c("Treated" = "#e31e1e", "Naive" = "#999999")) +
+		my_theme
+	} %>%
+	ggsave(
+		plot = .,
+		"out_treatment_vs_high/BMI_boxplot.pdf",
+		useDingbats=FALSE,
+		units = c("mm"),
+		width = 89 ,
+		height = 89
+	)
