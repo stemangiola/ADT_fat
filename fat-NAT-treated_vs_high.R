@@ -17,12 +17,12 @@ library(ruv)
 source("~/third_party_sofware//RUV4.R")
 
 # Heatmap
-library(ggdendro)
+#library(ggdendro)
 
 library(RColorBrewer)
 
-# to_matrix function
-source("https://gist.githubusercontent.com/stemangiola/39b08d529157ce59a5ff5dc1653951c5/raw/4538f8f5665810d3625fba8e06cbedce6486e887/to_matrix.R")
+# as_matrix function
+source("https://gist.githubusercontent.com/stemangiola/39b08d529157ce59a5ff5dc1653951c5/raw/5ceb71b95d33254016b15fdc28c3ec40d7dbe137/as_matrix.R")
 
 # EGSEA
 library(EGSEA)
@@ -34,6 +34,10 @@ library(EGSEAdata)
 
 # Deconvolution
 library(ARMET)
+
+# Cibersort
+source("~/PhD/deconvolution/ARMET_BK_Apr2017/comparison_methods/cibersort/CIBERSORT_annotated.R")
+
 
 # Set theme plots
 my_theme = 	
@@ -474,7 +478,7 @@ DE.obj <-
 						# top_genes = my_df_mds %>%
 						# 	dplyr::select(symbol, Sample, !!read_count) %>%
 						# 	spread( Sample, !!read_count) %>%
-						# 	to_matrix(rownames = "symbol") %>%
+						# 	as_matrix(rownames = "symbol") %>%
 						# 	my.mds(gene.selection = "common") %$% 
 						# 	top_genes 
 						
@@ -494,7 +498,7 @@ DE.obj <-
 									)
 							) %>%
 							spread( Sample_label, `value RUV log`) %>%
-							to_matrix(rownames = "symbol") %>%
+							as_matrix(rownames = "symbol") %>%
 							t() %>%
 							scale() %>%
 							t() %>%
@@ -615,12 +619,14 @@ DE.obj <-
 		
 	}
 
+
+#############################################################
+# Plot DE ###################################################
+
 # Summary EGSEA
 t = topSets(DE.obj$egsea.res, names.only=FALSE, number = Inf, verbose = FALSE)
 t[grep("LIM_", rownames(t)), c("p.adj", "Rank", "med.rank", "vote.rank")]
 
-#############################################################
-# Plot DE ###################################################
 
 d_adj %>% 
 	
@@ -803,8 +809,6 @@ DE.obj %$%
 #############################################################
 # Tissue composition analyses ###############################
 
-source("~/PhD/deconvolution/ARMET_BK_Apr2017/comparison_methods/cibersort/CIBERSORT_annotated.R")
-
 tissue_composition = 
 	d_adj %>%
 	mutate( `Count RUV` = exp(`value RUV log`)) %>%
@@ -837,8 +841,8 @@ tissue_composition =
 			{
 				proportions = (.)
 				dd = (.) %>% left_join(d_adj %>% distinct(Sample, Label, W)) %>% dplyr::select(-Sample) 
-				AL = (.) %>% dplyr::select(-Sample) %>% DR_data
-				DirichReg(AL ~ Label + W, dd) %>%
+				AL = (.) %>% dplyr::select(-Sample) %>% DirichletReg::DR_data()
+				DirichletReg::DirichReg(AL ~ Label + W, data=dd) %>%
 					summary %>%
 					{
 						
@@ -856,7 +860,7 @@ tissue_composition =
 							) %>%
 							filter(cov == "LabelNeoadjuvant") %>%
 							mutate(FDR = p.adjust(`Pr(>|z|)`, "bonferroni")) %>%
-							mutate(Sig = ifelse(FDR, "*", "")) 
+							mutate(Sig = ifelse(FDR < 0.05, "*", "")) 
 					} %>%
 					
 					# Unite proportions with test
@@ -886,7 +890,7 @@ tissue_composition =
 					# If file does NOT exist
 					{
 						df %>%
-							rename(gene=symbol) %>%
+							dplyr::rename(gene=symbol) %>%
 							ARMET_tc(
 								my_design = 
 									design %>% 
@@ -913,15 +917,16 @@ tissue_composition =
 	# plot Comparison
 	{
 		getPalette = colorRampPalette(RColorBrewer::brewer.pal(9, "Set1"))
-		
+
 		bind_rows(
 			
 			# Cibersort
-			(.) %$% cibersort %>%
+			(.) %$% 
+				cibersort %>%
 				
 				# Convert cell types to match
 				left_join(
-					read_csv("cell_type_conversion.csv") %>% dplyr::select(1,2) %>% rename(`Cell type` = Cibersort)
+					read_csv("cell_type_conversion.csv") %>% dplyr::select(1,2) %>% dplyr::rename(`Cell type` = Cibersort)
 				) %>%
 				rowwise() %>%
 				mutate(`Cell type` = ifelse(!is.na(ARMET), ARMET, `Cell type`)) %>%
@@ -937,21 +942,22 @@ tissue_composition =
 				mutate(Algorithm = "Cibersort") ,
 			
 			# ARMET
-			(.) %$% armet %>%
+			(.) %$% 
+				armet %>%
 			{
 				res = (.)
-				
+				browser()
 				res %$% 
 					proportions %>% 
 					gather(`Cell type`, Proportion, 10:35) %>%
-					rename(Label = neoadjuvant) %>%
+					dplyr::rename(Label = neoadjuvant) %>%
 					mutate(Label = as.factor(Label)) %>%
 					left_join(
 						res %$% 
 							stats %>% 
-							data.tree::ToDataFrameTable("name", "Direction", "Sig",   "Driver") %>% 
+							data.tree::ToDataFrameTable("name", "Direction", "Sig",   "Driver", "CI.low", "CI.high") %>% 
 							as_tibble() %>%
-							rename(`Cell type` = name)
+							dplyr::rename(`Cell type` = name)
 					) %>%
 					rowwise() %>%
 					mutate(Driver = paste(rep(Driver, 2), collapse="")) %>%
@@ -978,14 +984,28 @@ tissue_composition =
 			
 			# plot
 		{
-			res = (.)
+			res = 
+				(.) %>%
+				mutate(
+					`Hypothesis test label` = ifelse(
+						Algorithm == "Cibersort",
+						sprintf("FDR = %s", FDR %>% formatC(format = "e", digits = 2)),
+						sprintf("CI = %s/%s", CI.low, CI.high)
+					)
+				)
 			
+			browser()
 			res %>%
 			{
 				ggplot((.), aes(x=Label, y = Proportion, fill = `Cell type`, label = Sig)) +
 					geom_boxplot(outlier.size = 0) +
 					geom_jitter(size = 0.2, height = 0) +
-					facet_wrap( `Cell type` ~ Algorithm, scales = "free", ncol = 8, labeller = label_wrap_gen(width=10)) +
+					facet_wrap( 
+						`Cell type` ~ Algorithm + `Hypothesis test label`, 
+						scales = "free", 
+						ncol = 8, 
+						labeller = label_wrap_gen(width=10)
+					) +
 					#scale_fill_manual(values = c("Neoadjuvant" = "#e31e1e", "High" = "#999999")) +
 					scale_fill_manual(values = getPalette( res %>% distinct(`Cell type`) %>% nrow )) +
 					scale_y_continuous(labels = scales::scientific_format(digits = 1)) +
@@ -998,6 +1018,7 @@ tissue_composition =
 						text = element_text(size=9),
 						legend.position="bottom",
 						strip.background = element_blank(),
+						strip.text = element_text(margin = margin(0,0,0,0, "cm")),
 						axis.title.x  = element_text(margin = margin(t = 30, r = 10, b = 10, l = 10)),
 						axis.title.y  = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
 						axis.text.x = element_text(angle = 30, vjust = 0.5)
@@ -1007,8 +1028,8 @@ tissue_composition =
 							 "out_treatment_vs_high/tissue_composition_cibersort_vs_ARMET.pdf",
 							 useDingbats=FALSE,
 							 units = c("mm"),
-							 width = 183 ,
-							 height = 400
+							 width = 256 ,
+							 height = 333
 				)
 		}
 		
@@ -1277,8 +1298,9 @@ readxl::read_excel("PCR_validation/Ryan qPCR fat analysis Oct18.xlsx", sheet = "
 #############################################################
 # BMI check #################################################
 
+# Load BMI
 read_csv("Patient height_weight_BMI_NMC_treated_vs_naive.csv") %>%
-	rename(`Sample Name` = `Patient ID` ) %>%
+	dplyr::rename(`Sample Name` = `Patient ID` ) %>%
 	mutate(`Sample Name` = gsub("HG0", "HG", `Sample Name`)) %>%
 	left_join(
 		read_csv("PCR_to_RNAseq_sampleID_conversion.csv") %>%
@@ -1286,26 +1308,34 @@ read_csv("Patient height_weight_BMI_NMC_treated_vs_naive.csv") %>%
 			unite(Sample, c(Sample, prefix), sep	="")
 	) %>%
 	
+	# Load CAPRA
+	left_join( read_csv("treated_vs_high_CAPRA.csv") ) %>%
+	
 	# Add annotation
-	left_join( d_adj %>% distinct(Sample, Label)) %>%
+	left_join( d_adj %>% distinct(Sample, Label) ) %>%
 	mutate(Label = ifelse(Label == "High", "Naive", "Treated")) %>%
 	mutate(Labels = as.factor(Label)) %>%
+	
+	# Gather for facetting
+	dplyr::rename(`CAPRA` = CAPRA_HR, `CAPRA-S` = CAPRA_S_HR) %>%
+	gather(`Clinical variable`, Value, c("BMI", "CAPRA", "CAPRA-S")) %>%
 	
 	# Plot
 	{
 		(.) %>%
-		ggplot(aes(x = Label, y = BMI, fill = Label)) +
+		ggplot(aes(x = Label, y = Value, fill = Label)) +
 		geom_boxplot(outlier.size = 0, lwd=0.2, position = position_dodge(width=0.8)) +
 		geom_point(position=position_jitterdodge(dodge.width=0.8), size = 0.05, shape = 21 ) +
 		ggpubr::stat_compare_means(	method = "t.test") +
+		facet_wrap(~ `Clinical variable`, scales = "free") +
 		scale_fill_manual(values = c("Treated" = "#e31e1e", "Naive" = "#999999")) +
 		my_theme
 	} %>%
 	ggsave(
 		plot = .,
-		"out_treatment_vs_high/BMI_boxplot.pdf",
+		"out_treatment_vs_high/Clinical_values_boxplot.pdf",
 		useDingbats=FALSE,
 		units = c("mm"),
-		width = 89 ,
-		height = 89
+		width = 189 ,
+		height = 189/3+50
 	)
