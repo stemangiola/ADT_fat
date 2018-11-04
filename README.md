@@ -1,0 +1,7 @@
+# Androgen deprivation therapy promotes an inflammatory and obesity-like microenvironment in periprostatic fat
+
+Prostate cancer is a leading cause of morbidity and cancer-related death worldwide. Androgen deprivation therapy (ADT) is the cornerstone of management for advanced disease. The use of these therapies is associated with multiple side effects, including metabolic syndrome and truncal obesity. At the same time, obesity has been associated with both prostate cancer development and disease progression, linked to its effects on chronic inflammation at a tissue level. The connection between androgen deprivation therapy, obesity, inflammation, and prostate cancer progression is well-established in clinical settings; however, an understanding of the changes in adipose tissue at the molecular level induced by castrating therapies is missing. Here we investigated the transcriptional changes in periprostatic fat tissue induced by profound androgen deprivation therapy in a group of patients with high-risk tumours compared to a matching untreated cohort. We find that the deprivation of androgen is associated with a pro-inflammatory and obesity-like adipose tissue microenvironment. This study suggests that the beneficial effect of therapies based on androgen deprivation may be partially counteracted by metabolic and inflammatory side effects in the adipose tissue surrounding the prostate.
+
+## Raw data
+
+The sequenced reads raw files are available at ega-archive.org with the identifier EGAXXXXXXXX.
