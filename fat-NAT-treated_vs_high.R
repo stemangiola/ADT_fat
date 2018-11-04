@@ -33,6 +33,8 @@ library(EGSEAdata)
 # detach("package:hgu95av2.db", unload=TRUE, force = T)
 
 # Deconvolution
+library(devtools)
+#install_github("stemangiola/ARMET", args = "--preclean", build_vignettes = FALSE, auth_token = "37c5c6238136a6804d336d9a7078eece993ce870", password="x-oauth-basic")  
 library(ARMET)
 
 # Cibersort
