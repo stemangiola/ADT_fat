@@ -876,6 +876,7 @@ tissue_composition =
 			# ARMET-tc
 			armet = 
 			{
+			browser()
 				file_name = "out_treatment_vs_high/armet_high_vs_treated.RData"
 				
 				switch(
@@ -891,7 +892,8 @@ tissue_composition =
 					
 					# If file does NOT exist
 					{
-						df %>%
+						
+						d$counts %>% as_tibble(rownames="GeneID") %>% left_join(d$genes %>% as_tibble %>% mutate(GeneID = GeneID %>% as.character)) %>% dplyr::select(-GeneID, -Length) %>% gather(sample, `read count`, -symbol) %>% drop_na %>% spread(sample, `read count`)%>%
 							dplyr::rename(gene=symbol) %>%
 							ARMET_tc(
 								my_design = 
@@ -909,6 +911,20 @@ tissue_composition =
 								armet.res = (.)
 								save(armet.res, file=file_name)
 								armet.res
+							} %>%
+							{
+								# Plot the immune cell components for validation
+								armet.res %$%
+									tree %$%
+									estimate_prop_with_uncertanties  %>%
+									left_join(	annot %>% distinct(Sample, Label) %>% rename(sample = Sample)	) %>%
+									ggplot(aes(x=sample, y=estimate, shape = ct, color = Label)) + 
+									geom_errorbar(aes(ymin=.lower, ymax=.upper), color="grey") +
+									geom_point() +  
+									geom_tile("Immune cells for validation") +
+									my_theme
+								
+								(.)
 							}
 					}
 				)
@@ -918,6 +934,7 @@ tissue_composition =
 	
 	# plot Comparison
 	{
+
 		getPalette = colorRampPalette(RColorBrewer::brewer.pal(9, "Set1"))
 
 		bind_rows(
@@ -940,7 +957,7 @@ tissue_composition =
 				# Add significance to cell name
 				unite(`Cell type sig`, c("Cell type", "Sig"), sep = " ", remove = F) %>%
 				mutate(`Cell type sig` = str_trim(`Cell type sig`)) %>%
-				
+				dplyr::rename(sample = Sample) %>%
 				mutate(Algorithm = "Cibersort") ,
 			
 			# ARMET
@@ -948,10 +965,10 @@ tissue_composition =
 				armet %>%
 			{
 				res = (.)
-				browser()
+			
 				res %$% 
 					proportions %>% 
-					gather(`Cell type`, Proportion, 10:35) %>%
+					rename(`Cell type` = ct, Proportion = absolute_proportion) %>%
 					dplyr::rename(Label = neoadjuvant) %>%
 					mutate(Label = as.factor(Label)) %>%
 					left_join(
@@ -983,7 +1000,43 @@ tissue_composition =
 			} %>%
 				mutate(Algorithm = "ARMET") 
 		) %>%
+		
+		#select best sample for valudation	
+		{
+				
+				(left_join(
+					(.) %>% select(Algorithm, sample, `Cell type`, Proportion, Label) %>%
+						spread(Algorithm, Proportion),
+					(.) %>% filter(Algorithm == "ARMET") %>%
+						select(sample, `Cell type`, Label, .lower_absolute, .upper_absolute)
+				)	 %>%
+				#drop_na() %>%
+				# group_by(sample) %>%
+				# mutate(ARMET = ARMET / sum(ARMET), Cibersort = Cibersort / sum(Cibersort)) %>%
+				# ungroup() %>%
+				filter(grepl("Macrophage", `Cell type`) | `Cell type` == "Monocyte") %>%
+				separate(`Cell type`,c("Cell type"), sep= " ") %>%
+				group_by(`Cell type`, sample, Label) %>%
+				summarise(
+					ARMET = ARMET %>% sum,
+					Cibersort = Cibersort %>% sum,
+					.lower_absolute = .lower_absolute %>% sum,
+					.upper_absolute = .upper_absolute %>% sum
+				) %>%
+				gather(Algorithm,Proportion, c("ARMET", "Cibersort")) %>%
+				mutate(
+					.lower_absolute = ifelse(Algorithm == "Cibersort", NA, .lower_absolute),
+					.upper_absolute = ifelse(Algorithm == "Cibersort", NA, .upper_absolute)
+				) %>%
+				ggplot(aes(x=sample, y=Proportion, shape = `Cell type`, color = Label)) + 
+				geom_errorbar(aes(ymin=.lower_absolute, ymax=.upper_absolute), color="grey") +
+				geom_point() + 
+				facet_grid(~ Algorithm) + 
+				my_theme) %>%
+				plot()
 			
+			(.)
+		} %>%
 			# plot
 		{
 			res = 
